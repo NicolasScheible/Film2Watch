@@ -4,10 +4,10 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Profil- und Freundesystem** (Firebase Authentication aus Schritt 2 unverändert, Profil bearbeiten, Freundescode-Suche, Freundschaftsanfragen, Freundesliste – produktiv auf Cloud Firestore).
+Aktueller Schritt: **Profilbild-System** (Firebase Storage). Profil- und Freundesystem aus Schritt 3 unverändert, jetzt inkl. echtem Profilbild-Upload/-Löschen.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Gruppen, Chat-Funktionalität, Push-Benachrichtigungen, Werbung, Premium, Profilbild-Upload (siehe „Offene externe Konfiguration").
+TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Gruppen, Chat-Funktionalität, Push-Benachrichtigungen, Werbung, Premium.
 
 ## Tech-Stack
 
@@ -18,7 +18,7 @@ TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Gruppen, Chat-Funktionalit
   - Firebase Authentication – **produktiv**: E-Mail/Passwort (Login, Registrierung, Passwort-Reset). Google- und Apple-Sign-In sind echt implementiert, benötigen aber noch externe Konfiguration (siehe „Offene externe Konfiguration" unten)
   - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaftsanfragen, Freundschaften (siehe „Datenmodell" unten)
   - Firebase Cloud Messaging – als Dependency eingerichtet, noch keine Push-Logik
-  - Firebase Storage – **noch nicht bestätigt eingerichtet**, daher noch kein Profilbild-Upload (siehe unten)
+  - Firebase Storage – **produktiv**: Profilbild-Upload/-Löschen (`profile_images/{uid}/profile.jpg`)
 - **Plattformen:** Android (`com.film2watch`), iOS (`film2watch`)
 
 ## Projektstruktur
@@ -39,14 +39,15 @@ lib/
   components/
     auth/                Wiederverwendbare Auth-UI (Textfeld, Buttons)
     friends/              Avatar, Freundes-Listenzeile
-  services/            Auth-Service, Friend-Service (orchestrieren Repositories)
+  services/            Auth-, Friend- und Storage-Service (orchestrieren Repositories)
   repositories/        Firebase-Auth- und Firestore-Zugriffsschicht
   models/               User-, PublicProfile-, FriendRequest-Modelle
-  providers/            Riverpod-Provider (Auth-/Freundes-State, Formular-Controller)
+  providers/            Riverpod-Provider (Auth-/Freundes-/Profilbild-State, Formular-Controller)
   theme/                Dark-Theme, Farben
   utils/                 Validierung, Fehlerübersetzung
-firestore.rules      Security Rules für alle Collections
-firestore-tests/     Node-basierte Security-Rules-Tests gegen den echten Firestore-Emulator
+firestore.rules      Security Rules für alle Firestore-Collections
+storage.rules        Security Rules für Firebase Storage (Profilbilder)
+firestore-tests/     Node-basierte Security-Rules-Tests gegen den echten Firestore-/Storage-Emulator
 ```
 
 Architektur-Fluss: **Screens → Providers → Repositories/Services**
@@ -79,6 +80,21 @@ lesbar (E-Mail etc.). Damit andere User trotzdem per Freundescode suchen bzw. Na
 Freunden anzeigen können, existiert eine schlanke, öffentliche Teilmenge in einer eigenen
 Collection – ohne dafür das private Profil öffnen zu müssen.
 
+## Profilbild
+
+- **Auswahl:** Kamera oder Galerie über `image_picker`; Komprimierung/Verkleinerung bereits beim
+  Auswählen (`maxWidth`/`maxHeight: 1024`, `imageQuality: 85`, JPEG) – kein zusätzliches
+  Kompressions-Paket nötig.
+- **Validierung:** Datei-Existenz, unterstütztes Format, maximale Größe (5 MB, serverseitig in
+  `storage.rules` gespiegelt) vor jedem Upload.
+- **Speicherort:** `profile_images/{uid}/profile.jpg` – fester Pfad, ein neues Bild überschreibt
+  automatisch das alte (keine Sammlung verwaister Dateien).
+- **Nach Upload:** `users/{uid}.profile_picture` und `public_profiles/{uid}.profile_picture`
+  werden gemeinsam aktualisiert (analog zum Namen); `friend_code`/`email`/`created_at` bleiben
+  unangetastet.
+- **Entfernen:** löscht die Storage-Datei und setzt `profile_picture` zurück; der
+  Initialen-Avatar ist ausschließlich die Leer-Darstellung für „kein Profilbild vorhanden".
+
 ## Firebase-Konfiguration
 
 Die Konfigurationsdateien sind Teil des Repositories, da sie öffentliche
@@ -106,23 +122,20 @@ sobald die TMDB-Integration umgesetzt wird.
    die App-ID `film2watch` aktiviert werden; zusätzlich muss der Apple-Provider in
    Firebase Authentication → Sign-in-Methode aktiviert werden. Die iOS-Entitlements
    (`ios/Runner/Runner.entitlements`) sind bereits im Repository vorbereitet.
-4. **Firebase Storage (Profilbild-Upload):** Ob Cloud Storage für dieses Firebase-Projekt
-   aktiviert ist, lässt sich aus dem Repository nicht zuverlässig ablesen (der `storage_bucket`-
-   Eintrag in den Konfigurationsdateien wird automatisch für jedes Firebase-Projekt vergeben und
-   belegt nicht, dass das Storage-Produkt in der Console tatsächlich aktiviert wurde). Daher wurde
-   **kein** Upload-Code implementiert. Bitte in der Firebase Console unter „Storage" prüfen/„Jetzt
-   starten" klicken, danach Bescheid geben – dann wird der echte Upload (Paket `firebase_storage`)
-   ergänzt. Bis dahin zeigt das Profil einen aus dem Namen generierten Avatar (Initialen) als
-   neutrale Darstellung für „kein Profilbild vorhanden", keine Fake-Bilddaten.
+4. **Storage Security Rules deployen** – `storage.rules` (Repo-Root) muss über die Firebase
+   Console (Storage → Regeln → Inhalt einfügen) oder `firebase deploy --only storage` veröffentlicht
+   werden. Ohne deployte Regeln nutzt euer Projekt die Firebase-Standardregeln, die je nach
+   Erstellungszeitpunkt des Buckets entweder alles sperren oder unsicher offen sein können – bitte
+   nach dem Deployment einmal in der Console verifizieren.
 
 Bis diese Schritte durchgeführt sind, zeigen Google-/Apple-Login in der App einen echten,
 verständlichen Fehler statt eines funktionierenden Logins (kein Mock).
 
-## Firestore Security Rules testen
+## Security Rules testen
 
-`firestore.rules` wird mit echten Tests gegen den lokalen Firestore-Emulator verifiziert
-(unterstützt – anders als reine Flutter-Fakes – `exists()`, `resource` und Custom Functions).
-Details und Ausführung: [`firestore-tests/README.md`](firestore-tests/README.md).
+`firestore.rules` und `storage.rules` werden mit echten Tests gegen die lokalen Firebase-
+Emulatoren verifiziert (unterstützen – anders als reine Flutter-Fakes – `exists()`, `resource`
+und Custom Functions). Details und Ausführung: [`firestore-tests/README.md`](firestore-tests/README.md).
 
 ## Entwicklung
 

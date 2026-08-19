@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Film2Watch benötigt Zugriff auf deine Fotos, um ein Profilbild auszuwählen.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Film2Watch benötigt Zugriff auf deine Kamera, um ein Profilbild aufzunehmen.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

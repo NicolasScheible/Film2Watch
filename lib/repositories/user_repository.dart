@@ -74,6 +74,23 @@ class UserRepository {
     return batch.commit();
   }
 
+  /// Setzt die Profilbild-URL nach einem erfolgreichen Storage-Upload.
+  /// `friend_code`, `email` und `created_at` bleiben unangetastet.
+  Future<void> updateProfilePicture(String uid, String url) {
+    final batch = _firestore.batch();
+    batch.update(_users.doc(uid), {'profile_picture': url});
+    batch.update(_publicProfiles.doc(uid), {'profile_picture': url});
+    return batch.commit();
+  }
+
+  /// Setzt das Profilbild zurück (nachdem die Storage-Datei gelöscht wurde).
+  Future<void> clearProfilePicture(String uid) {
+    final batch = _firestore.batch();
+    batch.update(_users.doc(uid), {'profile_picture': null});
+    batch.update(_publicProfiles.doc(uid), {'profile_picture': null});
+    return batch.commit();
+  }
+
   /// Erstellt das User-Dokument samt öffentlichem Profil und eindeutigem
   /// Freundescode nur, wenn es noch nicht existiert. Ein bestehendes Profil
   /// wird dabei niemals überschrieben. Die Eindeutigkeitsprüfung des

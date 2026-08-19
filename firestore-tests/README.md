@@ -1,23 +1,24 @@
-# Firestore Security Rules Tests
+# Security Rules Tests
 
-Testet die tatsächliche `../firestore.rules` gegen den echten lokalen
-Firestore-Emulator (nicht gegen ein vereinfachtes Fake, das `exists()`,
+Testet die tatsächlichen `../firestore.rules` und `../storage.rules` gegen die echten
+lokalen Firebase-Emulatoren (nicht gegen ein vereinfachtes Fake, das `exists()`,
 `resource` etc. nicht unterstützt).
 
 ## Voraussetzungen
 
 - Node.js
 - Firebase CLI (`npm install -g firebase-tools`)
-- Java (für den Firestore-Emulator)
+- Java (für die Emulatoren)
 
 ## Ausführen
 
 ```bash
-# Einmalig: Emulator-JAR herunterladen
+# Einmalig: Emulator-JARs herunterladen
 firebase setup:emulators:firestore
+firebase setup:emulators:storage
 
-# Terminal 1: Emulator im Repo-Root starten
-firebase emulators:start --only firestore --project film2watch-rules-test
+# Terminal 1: Emulatoren im Repo-Root starten
+firebase emulators:start --only firestore,storage --project film2watch-rules-test
 
 # Terminal 2: Tests ausführen
 cd firestore-tests
