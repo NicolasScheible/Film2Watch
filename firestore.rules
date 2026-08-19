@@ -13,6 +13,19 @@ service cloud.firestore {
       return a < b ? a + '_' + b : b + '_' + a;
     }
 
+    function isGroupMember(groupId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));
+    }
+
+    function groupMemberRole(groupId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid)).data.role;
+    }
+
+    function isGroupAdmin(groupId) {
+      return isGroupMember(groupId) && groupMemberRole(groupId) == 'admin';
+    }
+
     // Privates Profil (u. a. E-Mail). Nur der Owner darf lesen/schreiben.
     // uid, email, friend_code und created_at dürfen nach dem Anlegen nie
     // mehr verändert werden (auch nicht vom Owner selbst).
@@ -93,6 +106,72 @@ service cloud.firestore {
       allow update: if false;
 
       allow delete: if isSignedIn() && request.auth.uid in resource.data.uids;
+    }
+
+    // Gruppen. Nur Mitglieder dürfen lesen, nur Admins dürfen bearbeiten/
+    // löschen. id/created_by/created_at sind nach dem Anlegen unveränderlich.
+    match /groups/{groupId} {
+      allow read: if isGroupMember(groupId);
+
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.created_by;
+
+      allow update: if isGroupAdmin(groupId)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.created_by == resource.data.created_by
+        && request.resource.data.created_at == resource.data.created_at;
+
+      allow delete: if isGroupAdmin(groupId);
+
+      // Mitgliedschaft + Rolle. Dokument-ID ist die uid - verhindert
+      // doppelte Mitgliedschaften strukturell.
+      match /members/{memberUid} {
+        allow read: if isGroupMember(groupId);
+
+        // Erst-Mitgliedschaft: nur der tatsächliche Ersteller der Gruppe darf
+        // sich selbst als Admin eintragen. Beitritt danach ausschließlich als
+        // 'member' und ausschließlich mit einer echten, an einen selbst
+        // gerichteten Einladung (siehe group_invitations unten).
+        allow create: if isSignedIn() && request.auth.uid == memberUid && (
+          (request.resource.data.role == 'admin'
+            && get(/databases/$(database)/documents/groups/$(groupId)).data.created_by == request.auth.uid)
+          ||
+          (request.resource.data.role == 'member'
+            && exists(/databases/$(database)/documents/group_invitations/$(groupId + '_' + request.auth.uid)))
+        );
+
+        // Rollenänderungen (z. B. Admin-Übertragung) nur durch den Admin.
+        allow update: if isGroupAdmin(groupId)
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.joined_at == resource.data.joined_at;
+
+        // Verlassen (eigene Mitgliedschaft) oder Entfernen durch den Admin.
+        allow delete: if isSignedIn() && (request.auth.uid == memberUid || isGroupAdmin(groupId));
+      }
+    }
+
+    // Offene Gruppeneinladungen. Dokument-ID ist deterministisch
+    // "{groupId}_{inviteeUid}" - verhindert doppelte Einladungen an dieselbe
+    // Person für dieselbe Gruppe strukturell. Nur der Admin der Gruppe darf
+    // einladen, und ausschließlich echte Freunde (siehe friendships oben) -
+    // keine beliebigen UIDs.
+    match /group_invitations/{invitationId} {
+      allow read: if isSignedIn() &&
+        (request.auth.uid == resource.data.inviterUid || request.auth.uid == resource.data.inviteeUid);
+
+      allow create: if isSignedIn()
+        && request.auth.uid == request.resource.data.inviterUid
+        && request.resource.data.inviterUid != request.resource.data.inviteeUid
+        && invitationId == request.resource.data.groupId + '_' + request.resource.data.inviteeUid
+        && isGroupAdmin(request.resource.data.groupId)
+        && exists(/databases/$(database)/documents/friendships/$(pairId(request.auth.uid, request.resource.data.inviteeUid)))
+        && !exists(/databases/$(database)/documents/groups/$(request.resource.data.groupId)/members/$(request.resource.data.inviteeUid));
+
+      allow update: if false;
+
+      allow delete: if isSignedIn() &&
+        (request.auth.uid == resource.data.inviterUid
+          || request.auth.uid == resource.data.inviteeUid
+          || isGroupAdmin(resource.data.groupId));
     }
   }
 }

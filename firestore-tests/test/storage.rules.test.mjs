@@ -90,3 +90,43 @@ describe('profile_images/{uid}', () => {
     await assertFails(storage.ref('profile_images/bob/profile.jpg').delete());
   });
 });
+
+// Hinweis: Firebase Storage Rules können keine Firestore-Daten lesen, daher
+// lässt sich "nur der Admin von Gruppe X darf schreiben" auf reiner Storage-
+// Ebene nicht abbilden (siehe Kommentar in storage.rules). Getestet wird
+// deshalb nur, was die Rules tatsächlich durchsetzen: Authentifizierung
+// sowie Größen-/Content-Type-Validierung.
+describe('group_images/{groupId}', () => {
+  it('lehnt einen nicht authentifizierten Upload ab', async () => {
+    const storage = testEnv.unauthenticatedContext().storage();
+    await assertFails(
+      storage.ref('group_images/g1/group.jpg').put(smallJpeg(), { contentType: 'image/jpeg' }),
+    );
+  });
+
+  it('erlaubt einem authentifizierten Nutzer den Upload', async () => {
+    const storage = testEnv.authenticatedContext('alice').storage();
+    await assertSucceeds(
+      storage.ref('group_images/g1/group.jpg').put(smallJpeg(), { contentType: 'image/jpeg' }),
+    );
+  });
+
+  it('lehnt einen Upload ab, der kein Bild ist', async () => {
+    const storage = testEnv.authenticatedContext('alice').storage();
+    await assertFails(
+      storage.ref('group_images/g1/group.jpg').put(smallJpeg(), { contentType: 'text/plain' }),
+    );
+  });
+
+  it('lehnt einen nicht authentifizierten Löschversuch ab', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context
+        .storage()
+        .ref('group_images/g1/group.jpg')
+        .put(smallJpeg(), { contentType: 'image/jpeg' });
+    });
+
+    const storage = testEnv.unauthenticatedContext().storage();
+    await assertFails(storage.ref('group_images/g1/group.jpg').delete());
+  });
+});

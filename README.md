@@ -4,10 +4,10 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Profilbild-System** (Firebase Storage). Profil- und Freundesystem aus Schritt 3 unverändert, jetzt inkl. echtem Profilbild-Upload/-Löschen.
+Aktueller Schritt: **Gruppen-System**. Profil-, Freundes- und Profilbild-System aus Schritt 3/3.1 unverändert, jetzt inkl. echter Gruppen mit Mitgliedern, Rollen, Einladungen und Gruppenbild.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Gruppen, Chat-Funktionalität, Push-Benachrichtigungen, Werbung, Premium.
+TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Gruppenchat, Push-Benachrichtigungen, Werbung, Premium.
 
 ## Tech-Stack
 
@@ -16,9 +16,9 @@ TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Gruppen, Chat-Funktionalit
 - **Backend:** Firebase (Projekt `film2watch-3385c`)
   - Firebase Core – initialisiert
   - Firebase Authentication – **produktiv**: E-Mail/Passwort (Login, Registrierung, Passwort-Reset). Google- und Apple-Sign-In sind echt implementiert, benötigen aber noch externe Konfiguration (siehe „Offene externe Konfiguration" unten)
-  - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaftsanfragen, Freundschaften (siehe „Datenmodell" unten)
+  - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen (siehe „Datenmodell" unten)
   - Firebase Cloud Messaging – als Dependency eingerichtet, noch keine Push-Logik
-  - Firebase Storage – **produktiv**: Profilbild-Upload/-Löschen (`profile_images/{uid}/profile.jpg`)
+  - Firebase Storage – **produktiv**: Profilbild- und Gruppenbild-Upload/-Löschen
 - **Plattformen:** Android (`com.film2watch`), iOS (`film2watch`)
 
 ## Projektstruktur
@@ -30,24 +30,29 @@ lib/
   firebase_options.dart  Firebase-Konfiguration (aus google-services.json /
                           GoogleService-Info.plist übernommen)
   screens/
-    swipe/ matches/ groups/ chat/    Noch leere Platzhalter-Bereiche
+    swipe/ chat/                       Noch leere Platzhalter-Bereiche
     profile/                          Profil, Profil bearbeiten, Freund hinzufügen,
                                        Freundesanfragen
+    groups/                           Gruppenliste, Gruppe erstellen/bearbeiten/Detail,
+                                       Freund einladen, Gruppeneinladungen
     auth/                             Login, Registrierung, Profil-Vervollständigung
     app_shell.dart      Bottom-Navigation der fünf Hauptbereiche
     app_gate.dart        Routing zwischen Auth-Bereich und Haupt-App anhand Auth-State
   components/
     auth/                Wiederverwendbare Auth-UI (Textfeld, Buttons)
-    friends/              Avatar, Freundes-Listenzeile
-  services/            Auth-, Friend- und Storage-Service (orchestrieren Repositories)
+    friends/              Avatar, Listenzeile (auch für Gruppenmitglieder/-liste genutzt)
+  services/            Auth-, Friend-, Group- und Storage-Service (orchestrieren Repositories)
   repositories/        Firebase-Auth- und Firestore-Zugriffsschicht
-  models/               User-, PublicProfile-, FriendRequest-Modelle
-  providers/            Riverpod-Provider (Auth-/Freundes-/Profilbild-State, Formular-Controller)
+  models/               User-, PublicProfile-, FriendRequest-, Group-, GroupMember-,
+                         GroupInvitation-Modelle
+  providers/            Riverpod-Provider (Auth-/Freundes-/Gruppen-/Profilbild-State,
+                         Formular-Controller)
   theme/                Dark-Theme, Farben
   utils/                 Validierung, Fehlerübersetzung
-firestore.rules      Security Rules für alle Firestore-Collections
-storage.rules        Security Rules für Firebase Storage (Profilbilder)
-firestore-tests/     Node-basierte Security-Rules-Tests gegen den echten Firestore-/Storage-Emulator
+firestore.rules         Security Rules für alle Firestore-Collections
+firestore.indexes.json  Collection-Group-Index für „meine Gruppen"
+storage.rules           Security Rules für Firebase Storage (Profil-/Gruppenbilder)
+firestore-tests/        Node-basierte Security-Rules-Tests gegen den echten Firestore-/Storage-Emulator
 ```
 
 Architektur-Fluss: **Screens → Providers → Repositories/Services**
@@ -79,6 +84,34 @@ löschen in einem Schritt).
 lesbar (E-Mail etc.). Damit andere User trotzdem per Freundescode suchen bzw. Namen/Bild von
 Freunden anzeigen können, existiert eine schlanke, öffentliche Teilmenge in einer eigenen
 Collection – ohne dafür das private Profil öffnen zu müssen.
+
+## Datenmodell (Gruppen)
+
+| Collection | Zweck | Zugriff |
+|---|---|---|
+| `groups/{groupId}` | Gruppen-Metadaten (`name, photo_url, created_by, created_at, updated_at`) | nur Mitglieder lesen, nur Admin ändert/löscht |
+| `groups/{groupId}/members/{uid}` | Mitgliedschaft + Rolle (`admin`\|`member`) | Doc-ID = uid, verhindert doppelte Mitgliedschaft |
+| `group_invitations/{groupId}_{inviteeUid}` | Offene Gruppeneinladung | nur Admin des Gruppe darf einladen, nur an echte Freunde |
+
+**„Meine Gruppen"** wird über eine Collection-Group-Query auf `members` (`where uid ==
+meineUid`) gelöst statt über ein redundantes `member_uids`-Array auf dem Gruppendokument, das
+bei jedem Join/Leave synchron gehalten werden müsste. Dafür ist ein Index nötig
+(`firestore.indexes.json`, siehe „Offene externe Konfiguration").
+
+**Admin-Struktur beim Verlassen:** Ein Admin kann eine Gruppe mit weiteren Mitgliedern nicht
+einfach verlassen – er muss zuerst per „Admin übertragen" ein anderes Mitglied zum Admin machen
+(App-/Service-Ebene, `GroupService.leaveGroup`). Ist der Admin das letzte verbliebene Mitglied,
+wird die Gruppe stattdessen komplett gelöscht statt verwaist zurückzubleiben.
+
+**Bekannte technische Grenze bei Gruppenbildern:** Firebase Storage Security Rules können keine
+Firestore-Daten lesen. „Nur der Admin von Gruppe X darf das Bild ändern" lässt sich damit auf
+reiner Storage-Ebene nicht durchsetzen (das bräuchte Firebase Auth Custom Claims + eine Cloud
+Function, die bei Rollenänderungen synchronisiert – neue Infrastruktur, nicht Teil dieses
+Schritts). `storage.rules` erlaubt daher wie beim Profilbild jedem authentifizierten Nutzer
+Schreibzugriff auf `group_images/{groupId}/...`; die eigentliche Admin-Prüfung erfolgt in
+`GroupService` (App-Ebene) sowie dort, wo es technisch geht: `groups/{groupId}.photo_url` ist in
+Firestore weiterhin nur vom Admin änderbar, ein unautorisierter Storage-Upload würde also nie als
+tatsächliches Gruppenbild in der App erscheinen.
 
 ## Profilbild
 
@@ -127,6 +160,10 @@ sobald die TMDB-Integration umgesetzt wird.
    werden. Ohne deployte Regeln nutzt euer Projekt die Firebase-Standardregeln, die je nach
    Erstellungszeitpunkt des Buckets entweder alles sperren oder unsicher offen sein können – bitte
    nach dem Deployment einmal in der Console verifizieren.
+5. **Firestore-Index deployen** – `firestore.indexes.json` (Collection-Group-Index auf
+   `members.uid`, nötig für die „Meine Gruppen"-Liste) muss über `firebase deploy --only
+   firestore:indexes` veröffentlicht werden, oder Firestore bietet beim ersten Aufruf der Query in
+   der Produktion einen direkten Konsolen-Link zum Anlegen an.
 
 Bis diese Schritte durchgeführt sind, zeigen Google-/Apple-Login in der App einen echten,
 verständlichen Fehler statt eines funktionierenden Logins (kein Mock).
