@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Ein authentifizierter User darf ausschließlich sein eigenes
+    // User-Dokument lesen und schreiben. Kein Zugriff auf fremde Profile.
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Reine Existenz-Lookup-Collection zur Prüfung, ob ein Freundescode
+    // bereits vergeben ist (code -> uid). Jeder authentifizierte User darf
+    // prüfen, ob ein Code existiert, aber nur seinen eigenen Code anlegen
+    // und niemals fremde Einträge verändern oder löschen.
+    match /friend_codes/{code} {
+      allow get: if request.auth != null;
+      allow list: if false;
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.uid;
+      allow update, delete: if false;
+    }
+  }
+}

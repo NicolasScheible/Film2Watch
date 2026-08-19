@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'screens/app_shell.dart';
+import 'screens/app_gate.dart';
 import 'theme/app_theme.dart';
 
 class Film2WatchApp extends StatelessWidget {
@@ -14,7 +14,7 @@ class Film2WatchApp extends StatelessWidget {
       theme: AppTheme.dark,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.dark,
-      home: const AppShell(),
+      home: const AppGate(),
     );
   }
 }

@@ -4,10 +4,10 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Projekt-Grundsetup** (Flutter-Projekt, Firebase-Anbindung, Architektur, Navigation, Dark Theme).
+Aktueller Schritt: **Firebase Authentication** (E-Mail/Passwort produktiv, Google/Apple technisch integriert aber extern noch nicht konfiguriert – siehe unten).
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Chat-Funktionalität, Login-Flows (E-Mail/Google/Apple), Gruppenlogik, Push-Benachrichtigungen, Werbung, Premium.
+TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Chat-Funktionalität, Freundes-/Gruppenlogik, Push-Benachrichtigungen, Werbung, Premium.
 
 ## Tech-Stack
 
@@ -15,8 +15,8 @@ TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Chat-Funktionalität, Logi
 - **State Management:** Riverpod
 - **Backend:** Firebase (Projekt `film2watch-3385c`)
   - Firebase Core – initialisiert
-  - Cloud Firestore – als Dependency eingerichtet, noch keine Datenmodelle/Zugriffe
-  - Firebase Authentication – als Dependency eingerichtet, noch keine Login-Flows
+  - Firebase Authentication – **produktiv**: E-Mail/Passwort (Login, Registrierung, Passwort-Reset). Google- und Apple-Sign-In sind echt implementiert, benötigen aber noch externe Konfiguration (siehe „Offene externe Konfiguration" unten)
+  - Cloud Firestore – `users`-Collection produktiv angebunden (User-Dokument, Freundescode)
   - Firebase Cloud Messaging – als Dependency eingerichtet, noch keine Push-Logik
 - **Plattformen:** Android (`com.film2watch`), iOS (`film2watch`)
 
@@ -30,18 +30,57 @@ lib/
                           GoogleService-Info.plist übernommen)
   screens/
     swipe/ matches/ groups/ chat/ profile/   Die fünf Hauptbereiche
-    auth/                                     reserviert für Login-Flows
+    auth/                                     Login, Registrierung, Profil-Vervollständigung
     app_shell.dart      Bottom-Navigation der fünf Hauptbereiche
-  components/          wiederverwendbare Widgets (noch leer)
-  services/            Firebase-Initialisierung u.a. technische Anbindungen
-  repositories/        Datenzugriffsschicht auf Firestore (noch leer)
-  models/               Datenmodelle (noch leer)
-  providers/            Riverpod-Provider (App-State)
+    app_gate.dart        Routing zwischen Auth-Bereich und Haupt-App anhand Auth-State
+  components/auth/     Wiederverwendbare Auth-UI (Textfeld, Buttons)
+  services/            Auth-Service (orchestriert Repositories)
+  repositories/        Firebase-Auth- und Firestore-Zugriffsschicht
+  models/               User-Modell
+  providers/            Riverpod-Provider (Auth-State, Formular-Controller)
   theme/                Dark-Theme, Farben
-  utils/                 Hilfsfunktionen (noch leer)
+  utils/                 Validierung, Fehlerübersetzung
 ```
 
-Architektur-Fluss: **Screens → Providers → Repositories → Services**
+Architektur-Fluss: **Screens → Providers → Repositories/Services**
+
+## Authentication
+
+- **E-Mail/Passwort:** vollständig produktiv über `FirebaseAuth` (Registrierung, Login, `sendPasswordResetEmail`)
+- **Auth-State:** `authStateChanges()` steuert reaktiv, ob der Auth-Bereich oder die Haupt-App angezeigt wird (`lib/screens/app_gate.dart`)
+- **User-Dokument:** wird bei Registrierung/Erstlogin einmalig in `users/{uid}` angelegt (nie überschrieben), inkl. eindeutigem Freundescode (`FILM-XXXX`, atomare Eindeutigkeitsprüfung über `friend_codes/{code}`)
+- **Namensergänzung:** Falls nach Google-/Apple-Login kein Name vorliegt, wird der Nutzer aktiv danach gefragt (keine generierten Namen)
+- **Firestore-Regeln:** `firestore.rules` im Repo-Root – muss noch manuell deployt werden (siehe unten)
+
+## Firebase-Konfiguration
+
+Die Konfigurationsdateien sind Teil des Repositories, da sie öffentliche
+Client-Identifikatoren enthalten (wie bei jeder Flutter/Firebase-App üblich):
+
+- `android/app/google-services.json`
+- `ios/Runner/GoogleService-Info.plist`
+
+Geheime Schlüssel (z. B. TMDB-API-Key) werden **nicht** im Quellcode
+hinterlegt, sondern über ein separates Secret-Management eingebunden,
+sobald die TMDB-Integration umgesetzt wird.
+
+## Offene externe Konfiguration (nicht im Repository lösbar)
+
+1. **Firestore Security Rules deployen** – `firestore.rules` (Repo-Root) muss über die
+   Firebase Console (Firestore → Regeln → Inhalt einfügen) oder `firebase deploy --only firestore:rules`
+   veröffentlicht werden.
+2. **Google Sign-In:** In Google Cloud/Firebase Console fehlt aktuell jeder OAuth-Client für
+   dieses Projekt (`oauth_client: []` in `google-services.json`, kein `CLIENT_ID` in
+   `GoogleService-Info.plist`). Erforderlich: Android-OAuth-Client (SHA-1-Zertifikat-Fingerprint
+   in Firebase hinterlegen) und iOS-OAuth-Client sowie ein Web-Client (für `serverClientId`)
+   über Firebase Authentication → Sign-in-Methode → Google aktivieren.
+3. **Apple Sign-In:** Im Apple Developer Account muss die Capability „Sign in with Apple" für
+   die App-ID `film2watch` aktiviert werden; zusätzlich muss der Apple-Provider in
+   Firebase Authentication → Sign-in-Methode aktiviert werden. Die iOS-Entitlements
+   (`ios/Runner/Runner.entitlements`) sind bereits im Repository vorbereitet.
+
+Bis diese Schritte durchgeführt sind, zeigen Google-/Apple-Login in der App einen echten,
+verständlichen Fehler statt eines funktionierenden Logins (kein Mock).
 
 ## Firebase-Konfiguration
 
