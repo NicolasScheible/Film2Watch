@@ -4,10 +4,10 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Gruppen-System**. Profil-, Freundes- und Profilbild-System aus Schritt 3/3.1 unverändert, jetzt inkl. echter Gruppen mit Mitgliedern, Rollen, Einladungen und Gruppenbild.
+Aktueller Schritt: **TMDB-Filmdatenbasis**. Profil-, Freundes-, Profilbild- und Gruppen-System aus Schritt 3/3.1/4 unverändert, jetzt inkl. echter TMDB-Integration (Discover/Suche/Details) als Grundlage für Swipe/Matches.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Gruppenchat, Push-Benachrichtigungen, Werbung, Premium.
+Swipe-Algorithmus, Match-Algorithmus, Gruppenchat, Push-Benachrichtigungen, Werbung, Premium.
 
 ## Tech-Stack
 
@@ -19,6 +19,7 @@ TMDB-/Film-API, Swipe-Algorithmus, Match-Algorithmus, Gruppenchat, Push-Benachri
   - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen (siehe „Datenmodell" unten)
   - Firebase Cloud Messaging – als Dependency eingerichtet, noch keine Push-Logik
   - Firebase Storage – **produktiv**: Profilbild- und Gruppenbild-Upload/-Löschen
+- **Filmdaten:** TMDB API (`https://api.themoviedb.org/3`) – **produktiv**: Discover, Suche, Details, Watch-Provider (siehe „TMDB-Integration" unten). Kein eigener Filmdaten-Cache in Firestore, TMDB bleibt alleinige Quelle.
 - **Plattformen:** Android (`com.film2watch`), iOS (`film2watch`)
 
 ## Projektstruktur
@@ -30,25 +31,29 @@ lib/
   firebase_options.dart  Firebase-Konfiguration (aus google-services.json /
                           GoogleService-Info.plist übernommen)
   screens/
-    swipe/ chat/                       Noch leere Platzhalter-Bereiche
+    swipe/                             Platzhalter + Link zur TMDB-Testseite (noch kein Swipe)
+    chat/                              Noch leerer Platzhalter-Bereich
     profile/                          Profil, Profil bearbeiten, Freund hinzufügen,
                                        Freundesanfragen
     groups/                           Gruppenliste, Gruppe erstellen/bearbeiten/Detail,
                                        Freund einladen, Gruppeneinladungen
+    movies/                            TMDB Test/Browse-Seite, Filmdetails (Verifikation der
+                                       TMDB-Integration, keine Swipe-/Match-UI)
     auth/                             Login, Registrierung, Profil-Vervollständigung
     app_shell.dart      Bottom-Navigation der fünf Hauptbereiche
     app_gate.dart        Routing zwischen Auth-Bereich und Haupt-App anhand Auth-State
   components/
     auth/                Wiederverwendbare Auth-UI (Textfeld, Buttons)
     friends/              Avatar, Listenzeile (auch für Gruppenmitglieder/-liste genutzt)
-  services/            Auth-, Friend-, Group- und Storage-Service (orchestrieren Repositories)
-  repositories/        Firebase-Auth- und Firestore-Zugriffsschicht
+    movies/                Filmkarte (Poster + Titel + Bewertung)
+  services/            Auth-, Friend-, Group-, Storage-, Tmdb- und TmdbImage-Service
+  repositories/        Firebase- und TMDB-Zugriffsschicht
   models/               User-, PublicProfile-, FriendRequest-, Group-, GroupMember-,
-                         GroupInvitation-Modelle
-  providers/            Riverpod-Provider (Auth-/Freundes-/Gruppen-/Profilbild-State,
+                         GroupInvitation-, Movie-, MoviePage-, WatchProviderOption-Modelle
+  providers/            Riverpod-Provider (Auth-/Freundes-/Gruppen-/Profilbild-/TMDB-State,
                          Formular-Controller)
   theme/                Dark-Theme, Farben
-  utils/                 Validierung, Fehlerübersetzung
+  utils/                 Validierung, Fehlerübersetzung, TMDB-Konfiguration
 firestore.rules         Security Rules für alle Firestore-Collections
 firestore.indexes.json  Collection-Group-Index für „meine Gruppen"
 storage.rules           Security Rules für Firebase Storage (Profil-/Gruppenbilder)
@@ -128,6 +133,54 @@ tatsächliches Gruppenbild in der App erscheinen.
 - **Entfernen:** löscht die Storage-Datei und setzt `profile_picture` zurück; der
   Initialen-Avatar ist ausschließlich die Leer-Darstellung für „kein Profilbild vorhanden".
 
+## TMDB-Integration
+
+- **Architektur:** `TmdbService` (roher, fehlergeprüfter HTTP-Client, `package:http`) →
+  `MovieRepository` (mappt JSON auf das interne `Movie`-Modell, löst Genre-IDs zu Namen auf,
+  einfacher In-Memory-Cache für Genre-Liste + zuletzt geladene Filmdetails) → Riverpod-Provider/
+  Controller → Screens. TMDB-Zugriffe passieren nie direkt aus Widgets.
+- **Endpunkte:** Discover Movies, Search Movies, Movie Details, Genre List (intern für die
+  Genre-Namen-Auflösung), Watch Providers (Streaming-Verfügbarkeit).
+- **Fehlerbehandlung:** typisierte Exceptions für fehlenden API-Key, kein Internet/Timeout,
+  401/403/404/429/5xx sowie ungültige Antworten – werden in der UI zu verständlichen deutschen
+  Meldungen übersetzt, nie als rohe Exception angezeigt. Bei 429 (Rate Limit) erfolgt **kein**
+  automatischer Retry-Loop, nur eine Meldung zum späteren erneuten Versuch.
+- **Pagination:** `MovieRepository` lädt eine Seite auf Anfrage; `DiscoverMoviesController`/
+  `MovieSearchController` (Riverpod) hängen weitere Seiten dedupliziert an (`mergeUniqueMovies`,
+  Abgleich über `tmdbId`).
+- **Caching:** Genre-Liste (ändert sich praktisch nie) und die letzten 100 abgerufenen
+  Film-Details werden im `MovieRepository` im Speicher gehalten, um nicht bei jeder UI-Aktion
+  denselben Film erneut zu laden. Kein Offline-System, kein Duplizieren von Filmdaten nach
+  Firestore – TMDB bleibt alleinige Quelle.
+- **Region/Sprache:** Standard `de-DE`/`DE`, aber per `--dart-define=TMDB_LANGUAGE=...` bzw.
+  `--dart-define=TMDB_REGION=...` überschreibbar, ohne Code-Änderung – nicht hart auf Deutschland
+  verdrahtet.
+- **Bild-URLs:** zentral über `TmdbImageService` (Poster/Backdrop/Provider-Logo), keine manuell
+  zusammengebauten URL-Strings im restlichen Code.
+
+### TMDB API Key (Secret-Handling)
+
+**Es ist noch kein TMDB API Key hinterlegt – dieser wird für echte TMDB-Requests benötigt.**
+
+Der Zugang wird ausschließlich zur Build-Zeit über `--dart-define` injiziert, niemals im
+Quellcode oder in einer eingecheckten `.env`-Datei:
+
+```bash
+flutter run --dart-define=TMDB_ACCESS_TOKEN=euer_tmdb_read_access_token
+```
+
+Ohne gesetzten Token zeigt die App auf der TMDB-Testseite ehrlich „TMDB API Key wird benötigt."
+an, statt Requests mit einem falschen/leeren Schlüssel zu versuchen oder Daten vorzutäuschen. Der
+Token ist der TMDB **„API Read Access Token"** (Bearer-Token, nicht der ältere „API Key (v3
+auth)"), zu finden im TMDB-Account unter Einstellungen → API.
+
+## TMDB Test/Browse-Seite
+
+Im **Swipe**-Tab gibt es aktuell nur einen Platzhalter mit einem Button „TMDB Test / Browse" –
+das ist bewusst keine fertige Swipe-Oberfläche, sondern eine technische Verifikationsseite mit
+echten TMDB-Daten (Suche + Beliebtheits-Liste + Filmdetails inkl. Streaming-Verfügbarkeit), um die
+Integration zu prüfen.
+
 ## Firebase-Konfiguration
 
 Die Konfigurationsdateien sind Teil des Repositories, da sie öffentliche
@@ -136,9 +189,8 @@ Client-Identifikatoren enthalten (wie bei jeder Flutter/Firebase-App üblich):
 - `android/app/google-services.json`
 - `ios/Runner/GoogleService-Info.plist`
 
-Geheime Schlüssel (z. B. TMDB-API-Key) werden **nicht** im Quellcode
-hinterlegt, sondern über ein separates Secret-Management eingebunden,
-sobald die TMDB-Integration umgesetzt wird.
+Geheime Schlüssel (z. B. der TMDB API Key) werden **nicht** im Quellcode
+hinterlegt, sondern per `--dart-define` injiziert – siehe „TMDB-Integration" oben.
 
 ## Offene externe Konfiguration (nicht im Repository lösbar)
 
@@ -164,6 +216,9 @@ sobald die TMDB-Integration umgesetzt wird.
    `members.uid`, nötig für die „Meine Gruppen"-Liste) muss über `firebase deploy --only
    firestore:indexes` veröffentlicht werden, oder Firestore bietet beim ersten Aufruf der Query in
    der Produktion einen direkten Konsolen-Link zum Anlegen an.
+6. **TMDB API Read Access Token** – wird für alle echten TMDB-Requests benötigt (siehe
+   „TMDB-Integration" oben). Ohne ihn zeigt die TMDB-Testseite den Hinweis „TMDB API Key wird
+   benötigt.", es werden keine Fake-Daten angezeigt.
 
 Bis diese Schritte durchgeführt sind, zeigen Google-/Apple-Login in der App einen echten,
 verständlichen Fehler statt eines funktionierenden Logins (kein Mock).
