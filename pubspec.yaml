@@ -16,6 +16,7 @@ dependencies:
     sdk: flutter
   flutter_riverpod: ^3.4.2
   google_sign_in: ^7.2.0
+  share_plus: ^13.3.0
   sign_in_with_apple: ^8.1.0
 
 dev_dependencies:

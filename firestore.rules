@@ -2,22 +2,97 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Ein authentifizierter User darf ausschließlich sein eigenes
-    // User-Dokument lesen und schreiben. Kein Zugriff auf fremde Profile.
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    // Reine Existenz-Lookup-Collection zur Prüfung, ob ein Freundescode
-    // bereits vergeben ist (code -> uid). Jeder authentifizierte User darf
-    // prüfen, ob ein Code existiert, aber nur seinen eigenen Code anlegen
-    // und niemals fremde Einträge verändern oder löschen.
+    // Deterministische, sortierte Paar-ID für eine Freundschaft zwischen
+    // zwei Usern - unabhängig davon, wer die Anfrage gesendet hat.
+    function pairId(a, b) {
+      return a < b ? a + '_' + b : b + '_' + a;
+    }
+
+    // Privates Profil (u. a. E-Mail). Nur der Owner darf lesen/schreiben.
+    // uid, email, friend_code und created_at dürfen nach dem Anlegen nie
+    // mehr verändert werden (auch nicht vom Owner selbst).
+    match /users/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && request.auth.uid == userId
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.friend_code == resource.data.friend_code
+        && request.resource.data.created_at == resource.data.created_at;
+      allow delete: if false;
+    }
+
+    // Freundescode-Eindeutigkeits-Lookup (code -> uid). Jeder authentifizierte
+    // User darf prüfen, ob ein Code existiert, aber nur seinen eigenen Code
+    // anlegen und niemals fremde Einträge verändern oder löschen.
     match /friend_codes/{code} {
-      allow get: if request.auth != null;
+      allow get: if isSignedIn();
       allow list: if false;
-      allow create: if request.auth != null
-        && request.auth.uid == request.resource.data.uid;
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.uid;
       allow update, delete: if false;
+    }
+
+    // Öffentlich sichtbare Profil-Teilmenge (Name, Bild, Freundescode), damit
+    // andere User per Freundescode suchen bzw. Freunde anzeigen können, ohne
+    // Zugriff auf das private users/{uid}-Dokument zu benötigen. Kein `list`,
+    // damit niemand alle Profile durchsuchen/scrapen kann - Zugriff nur per
+    // bekannter uid (über den friend_codes-Lookup).
+    match /public_profiles/{userId} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && request.auth.uid == userId
+        && request.resource.data.friend_code == resource.data.friend_code;
+      allow delete: if false;
+    }
+
+    // Offene Freundschaftsanfragen. Dokument-ID ist deterministisch
+    // "{fromUid}_{toUid}". Ein zweiter create-Versuch auf dieselbe ID wird
+    // von Firestore als `update` behandelt, das hier nicht erlaubt ist -
+    // doppelte Anfragen in dieselbe Richtung sind damit unmöglich. Bereits
+    // bestehende Freundschaften blockieren neue Anfragen zusätzlich serverseitig.
+    match /friend_requests/{requestId} {
+      allow read: if isSignedIn() &&
+        (request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid);
+
+      allow create: if isSignedIn()
+        && request.auth.uid == request.resource.data.fromUid
+        && request.resource.data.fromUid != request.resource.data.toUid
+        && requestId == request.resource.data.fromUid + '_' + request.resource.data.toUid
+        && !exists(/databases/$(database)/documents/friendships/$(pairId(request.resource.data.fromUid, request.resource.data.toUid)));
+
+      allow update: if false;
+
+      allow delete: if isSignedIn() &&
+        (request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid);
+    }
+
+    // Bestätigte Freundschaften. Ein Dokument pro Paar (sortierte,
+    // deterministische ID) statt zwei einzelner Einträge - dadurch ist die
+    // Beziehung strukturell immer symmetrisch und kann nie einseitig
+    // existieren. Eine Freundschaft darf ausschließlich als Ergebnis einer
+    // Annahme einer echten, an einen selbst gerichteten Anfrage entstehen.
+    match /friendships/{friendshipId} {
+      allow read: if isSignedIn() && request.auth.uid in resource.data.uids;
+
+      allow create: if isSignedIn()
+        && request.auth.uid in request.resource.data.uids
+        && request.resource.data.uids.size() == 2
+        && friendshipId == pairId(request.resource.data.uids[0], request.resource.data.uids[1])
+        && exists(/databases/$(database)/documents/friend_requests/$(
+             request.resource.data.uids[0] == request.auth.uid
+               ? request.resource.data.uids[1] + '_' + request.auth.uid
+               : request.resource.data.uids[0] + '_' + request.auth.uid
+           ));
+
+      allow update: if false;
+
+      allow delete: if isSignedIn() && request.auth.uid in resource.data.uids;
     }
   }
 }
