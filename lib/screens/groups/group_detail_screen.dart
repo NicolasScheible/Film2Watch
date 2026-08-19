@@ -9,11 +9,12 @@ import '../../providers/group_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/group_error_translator.dart';
 import 'edit_group_screen.dart';
+import 'group_swipe_screen.dart';
 import 'invite_friend_screen.dart';
 
 /// Detailseite einer Gruppe: Bild, Name, Mitglieder, rollenabhängige
-/// Aktionen. Noch keine Film-/Swipe-Funktionen - die folgen in einem
-/// eigenen Entwicklungsschritt.
+/// Aktionen sowie der Einstieg in die Gruppen-Swipe-Session. Noch keine
+/// Match-Auswertung, kein Chat - die folgen in eigenen Entwicklungsschritten.
 class GroupDetailScreen extends ConsumerWidget {
   const GroupDetailScreen({super.key, required this.groupId});
 
@@ -66,6 +67,15 @@ class GroupDetailScreen extends ConsumerWidget {
               const SizedBox(height: 16),
               Center(
                 child: Text(group.name, style: Theme.of(context).textTheme.headlineSmall),
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => GroupSwipeScreen(groupId: groupId)),
+                ),
+                style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
+                icon: const Icon(Icons.movie_filter_outlined),
+                label: const Text('Filme swipen'),
               ),
               const SizedBox(height: 32),
               Row(

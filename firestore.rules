@@ -147,6 +147,30 @@ service cloud.firestore {
         // Verlassen (eigene Mitgliedschaft) oder Entfernen durch den Admin.
         allow delete: if isSignedIn() && (request.auth.uid == memberUid || isGroupAdmin(groupId));
       }
+
+      // Swipe-Entscheidungen (like/dislike) pro Mitglied und Film.
+      // Dokument-ID ist deterministisch "{uid}_{movieId}" - ein erneutes
+      // Bewerten desselben Films aktualisiert die bestehende Entscheidung
+      // statt ein zweites Dokument zu erzeugen. Lesbar für alle Mitglieder
+      // (spätere Match-Auswertung braucht das), schreibbar ausschließlich
+      // für den eigenen Swipe. Kein Löschen in diesem Schritt.
+      match /swipes/{swipeId} {
+        allow read: if isGroupMember(groupId);
+
+        allow create: if isGroupMember(groupId)
+          && request.auth.uid == request.resource.data.uid
+          && swipeId == request.resource.data.uid + '_' + string(request.resource.data.movie_id)
+          && request.resource.data.decision in ['like', 'dislike'];
+
+        allow update: if isGroupMember(groupId)
+          && request.auth.uid == resource.data.uid
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.movie_id == resource.data.movie_id
+          && request.resource.data.created_at == resource.data.created_at
+          && request.resource.data.decision in ['like', 'dislike'];
+
+        allow delete: if false;
+      }
     }
 
     // Offene Gruppeneinladungen. Dokument-ID ist deterministisch

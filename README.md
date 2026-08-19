@@ -4,10 +4,10 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **TMDB-Filmdatenbasis**. Profil-, Freundes-, Profilbild- und Gruppen-System aus Schritt 3/3.1/4 unverändert, jetzt inkl. echter TMDB-Integration (Discover/Suche/Details) als Grundlage für Swipe/Matches.
+Aktueller Schritt: **Gruppen-Film-Swipe**. Profil-, Freundes-, Profilbild-, Gruppen- und TMDB-System aus Schritt 3/3.1/4/5 unverändert, jetzt inkl. echter Swipe-Funktion: Gruppenmitglieder bewerten TMDB-Filme per Wisch-Geste oder Button mit Like/Dislike, die Entscheidung wird dauerhaft in Firestore gespeichert.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Swipe-Algorithmus, Match-Algorithmus, Gruppenchat, Push-Benachrichtigungen, Werbung, Premium.
+Match-Erkennung/-Anzeige (auch wenn mehrere Mitglieder denselben Film liken, wird das in diesem Schritt bewusst noch nicht ausgewertet), Gruppenchat, Push-Benachrichtigungen, Werbung, Premium.
 
 ## Tech-Stack
 
@@ -16,7 +16,7 @@ Swipe-Algorithmus, Match-Algorithmus, Gruppenchat, Push-Benachrichtigungen, Werb
 - **Backend:** Firebase (Projekt `film2watch-3385c`)
   - Firebase Core – initialisiert
   - Firebase Authentication – **produktiv**: E-Mail/Passwort (Login, Registrierung, Passwort-Reset). Google- und Apple-Sign-In sind echt implementiert, benötigen aber noch externe Konfiguration (siehe „Offene externe Konfiguration" unten)
-  - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen (siehe „Datenmodell" unten)
+  - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen, Gruppen-Swipes (siehe „Datenmodell" unten)
   - Firebase Cloud Messaging – als Dependency eingerichtet, noch keine Push-Logik
   - Firebase Storage – **produktiv**: Profilbild- und Gruppenbild-Upload/-Löschen
 - **Filmdaten:** TMDB API (`https://api.themoviedb.org/3`) – **produktiv**: Discover, Suche, Details, Watch-Provider (siehe „TMDB-Integration" unten). Kein eigener Filmdaten-Cache in Firestore, TMDB bleibt alleinige Quelle.
@@ -31,27 +31,31 @@ lib/
   firebase_options.dart  Firebase-Konfiguration (aus google-services.json /
                           GoogleService-Info.plist übernommen)
   screens/
-    swipe/                             Platzhalter + Link zur TMDB-Testseite (noch kein Swipe)
+    swipe/                             Platzhalter + Link zur TMDB-Testseite (Einstieg in die
+                                       echte Swipe-Session erfolgt über eine Gruppe, siehe unten)
     chat/                              Noch leerer Platzhalter-Bereich
     profile/                          Profil, Profil bearbeiten, Freund hinzufügen,
                                        Freundesanfragen
     groups/                           Gruppenliste, Gruppe erstellen/bearbeiten/Detail,
-                                       Freund einladen, Gruppeneinladungen
+                                       Freund einladen, Gruppeneinladungen, echte Gruppen-
+                                       Swipe-Session (`group_swipe_screen.dart`)
     movies/                            TMDB Test/Browse-Seite, Filmdetails (Verifikation der
-                                       TMDB-Integration, keine Swipe-/Match-UI)
+                                       TMDB-Integration, keine Match-UI)
     auth/                             Login, Registrierung, Profil-Vervollständigung
     app_shell.dart      Bottom-Navigation der fünf Hauptbereiche
     app_gate.dart        Routing zwischen Auth-Bereich und Haupt-App anhand Auth-State
   components/
     auth/                Wiederverwendbare Auth-UI (Textfeld, Buttons)
     friends/              Avatar, Listenzeile (auch für Gruppenmitglieder/-liste genutzt)
-    movies/                Filmkarte (Poster + Titel + Bewertung)
-  services/            Auth-, Friend-, Group-, Storage-, Tmdb- und TmdbImage-Service
-  repositories/        Firebase- und TMDB-Zugriffsschicht
+    movies/                Filmkarte (Poster + Titel + Bewertung), zieh-/wischbare Swipe-Karte
+                           (`swipe_card.dart`)
+  services/            Auth-, Friend-, Group-, Storage-, Tmdb-, TmdbImage- und Swipe-Service
+  repositories/        Firebase- und TMDB-Zugriffsschicht (inkl. Swipe-Repository)
   models/               User-, PublicProfile-, FriendRequest-, Group-, GroupMember-,
-                         GroupInvitation-, Movie-, MoviePage-, WatchProviderOption-Modelle
-  providers/            Riverpod-Provider (Auth-/Freundes-/Gruppen-/Profilbild-/TMDB-State,
-                         Formular-Controller)
+                         GroupInvitation-, Movie-, MoviePage-, WatchProviderOption-,
+                         MovieSwipe-Modelle
+  providers/            Riverpod-Provider (Auth-/Freundes-/Gruppen-/Profilbild-/TMDB-/Swipe-
+                         State, Formular-Controller)
   theme/                Dark-Theme, Farben
   utils/                 Validierung, Fehlerübersetzung, TMDB-Konfiguration
 firestore.rules         Security Rules für alle Firestore-Collections
@@ -117,6 +121,57 @@ Schreibzugriff auf `group_images/{groupId}/...`; die eigentliche Admin-Prüfung 
 `GroupService` (App-Ebene) sowie dort, wo es technisch geht: `groups/{groupId}.photo_url` ist in
 Firestore weiterhin nur vom Admin änderbar, ein unautorisierter Storage-Upload würde also nie als
 tatsächliches Gruppenbild in der App erscheinen.
+
+## Datenmodell (Swipes)
+
+| Collection | Zweck | Zugriff |
+|---|---|---|
+| `groups/{groupId}/swipes/{uid}_{movieId}` | Like/Dislike-Entscheidung eines Mitglieds zu einem Film (`uid, movie_id, decision, created_at, updated_at`) | lesbar für alle Mitglieder der Gruppe, schreibbar nur für den eigenen Swipe, kein Löschen |
+
+Es wird **keine** vollständige TMDB-JSON-Antwort in Firestore gespeichert – nur die
+Entscheidung selbst (`movie_id` + `like`/`dislike`). TMDB bleibt für alle Filmdaten (Titel,
+Poster, Genres, ...) die alleinige Quelle.
+
+**Deterministische Dokument-ID `{uid}_{movieId}`:** Ein erneutes Bewerten desselben Films durch
+denselben User in derselben Gruppe aktualisiert die bestehende Entscheidung (`update`), statt ein
+zweites Dokument anzulegen – strukturell unmöglich, doppelte oder widersprüchliche Einträge zu
+erzeugen. Die Security Rules trennen `create` (Erstanlage, prüft `request.auth.uid ==
+request.resource.data.uid` und das ID-Muster) sauber von `update` (nur der Owner, `uid`/`movie_id`/
+`created_at` bleiben unveränderlich) und verbieten `delete` vollständig – das ist für diesen Schritt
+nicht vorgesehen.
+
+**Lesbarkeit für alle Mitglieder statt nur den Owner:** Eine spätere Match-Auswertung (eigener,
+noch nicht implementierter Schritt) muss vergleichen können, wer welchen Film geliked hat – dafür
+müssen Mitglieder auch die Swipes anderer Mitglieder derselben Gruppe lesen dürfen. Schreiben bleibt
+trotzdem strikt auf den eigenen Swipe beschränkt.
+
+## Swipe-Funktion
+
+- **Architektur:** `SwipeRepository` (Firestore-Zugriff auf `groups/{groupId}/swipes`) →
+  `SwipeService` (prüft die Mitgliedschaft, bevor überhaupt geschrieben wird – die Firestore
+  Rules erzwingen dieselbe Prüfung zusätzlich serverseitig) → `SwipeActionController`
+  (Like/Dislike auslösen) + `SwipeQueueController` (Warteschlange unbewerteter Filme) → UI. Kein
+  direkter Firestore-/TMDB-Zugriff aus Widgets.
+- **Filmauswahl:** echte TMDB-Discover-Seiten (`MovieRepository.discoverMovies`, siehe
+  „TMDB-Integration"); Filme, die der aktuelle User in dieser Gruppe bereits bewertet hat, werden
+  clientseitig herausgefiltert (`SwipeRepository.getSwipedMovieIds`). Weitere TMDB-Seiten werden
+  automatisch nachgeladen, sobald die Warteschlange knapp wird, begrenzt auf maximal 5
+  Seitenabrufe pro Auffüll-Vorgang, um bei ungünstiger Datenlage keine unkontrollierte Schleife
+  auszulösen.
+- **Bedienung:** Wischen nach rechts = Like, nach links = Dislike (mit sichtbarer
+  Richtungsanzeige während des Ziehens); die Like-/Dislike-Buttons lösen exakt denselben Code-Pfad
+  wie die Geste aus (`SwipeCardState.triggerLike`/`triggerDislike` über einen `GlobalKey`), keine
+  doppelte Business-Logik.
+- **Speichern & Fehlerbehandlung:** Die Entscheidung wird erst nach der Wisch-/Tap-Animation
+  gespeichert; schlägt das Speichern fehl (kein Internet, Firestore-Fehler, ...), verschwindet die
+  Karte **nicht** kommentarlos – ein Fehler wird angezeigt und der User kann es erneut versuchen.
+  Mehrfaches schnelles Antippen wird über den `state.isLoading`-Zustand des
+  `SwipeActionController` abgefangen, es kann nie ein doppelter Swipe für denselben Tap ausgelöst
+  werden.
+- **Leerer Zustand:** „Keine weiteren Filme verfügbar." wird ausschließlich angezeigt, wenn TMDB
+  wirklich keine weiteren Seiten mehr liefert – kein endloser Ladeindikator.
+- **Nicht Teil dieses Schritts:** Match-Erkennung (auch wenn mehrere Mitglieder denselben Film
+  liken), Gruppenchat, Push-Benachrichtigungen.
 
 ## Profilbild
 
