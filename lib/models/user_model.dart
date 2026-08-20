@@ -9,6 +9,7 @@ class AppUser {
     required this.friendCode,
     required this.createdAt,
     this.profilePicture,
+    this.onboardingCompleted = false,
   });
 
   final String uid;
@@ -17,6 +18,13 @@ class AppUser {
   final String? profilePicture;
   final String friendCode;
   final DateTime createdAt;
+
+  /// Ob der Nutzer das Onboarding-Tutorial (3 Overlay-Hinweise zu den
+  /// Swipe-Richtungen und dem Freundescode, siehe `OnboardingScreen`)
+  /// bereits gesehen hat. Serverseitig auf `users/{uid}` gespeichert statt
+  /// nur lokal auf dem Gerät, damit es bei einem Login auf einem neuen
+  /// Gerät nicht erneut erscheint.
+  final bool onboardingCompleted;
 
   factory AppUser.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
@@ -30,6 +38,7 @@ class AppUser {
       createdAt: createdAtValue is Timestamp
           ? createdAtValue.toDate()
           : DateTime.now(),
+      onboardingCompleted: data['onboarding_completed'] as bool? ?? false,
     );
   }
 
@@ -41,6 +50,7 @@ class AppUser {
       'profile_picture': profilePicture,
       'friend_code': friendCode,
       'created_at': Timestamp.fromDate(createdAt),
+      'onboarding_completed': onboardingCompleted,
     };
   }
 }

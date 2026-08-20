@@ -4,14 +4,14 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Watchlist-Ansicht**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Match-,
-Chat- und Push-System aus den vorherigen Schritten unverändert. Das Swipe-System hat weiterhin alle
-vier Richtungen (Like/Dislike/Skip/Watchlist, siehe „Swipe-Funktion"); neu ist die **Anzeige** der
-Watchlist: jede Gruppe zeigt jetzt in `GroupDetailScreen`, welche Filme aktuelle Mitglieder auf
-„Vielleicht später" gesetzt haben, mit Gruppen-Abgleich („Du hast vorgemerkt" bzw. „2/4 vorgemerkt").
-Die Watchlist ist bewusst **persönlich pro Nutzer und Gruppe** (kein globaler, gruppenübergreifender
-Bereich) – der Abgleich selbst ist rein lesend über die bestehenden Swipe-Dokumente, es gibt keine
-zweite Watchlist-Datenquelle und keine Möglichkeit, Einträge zu entfernen (nicht Teil dieses Schritts).
+Aktueller Schritt: **Onboarding-Tutorial**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-,
+Swipe- (inkl. Watchlist-Ansicht), Match-, Chat- und Push-System aus den vorherigen Schritten
+unverändert. Neu registrierte bzw. neu vervollständigte Nutzer sehen jetzt direkt nach der
+Profil-Vervollständigung einmalig ein dreiteiliges Tutorial (`OnboardingScreen`), das die
+Swipe-Richtungen (Like/Dislike, Skip/Watchlist) und das Hinzufügen von Freunden per Freundescode
+erklärt, bevor die Haupt-App (`AppShell`) erscheint. Der Abschluss wird serverseitig auf
+`users/{uid}.onboarding_completed` gespeichert, damit das Tutorial bei einem Login auf einem
+anderen Gerät nicht erneut erscheint.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
 Watchlist entfernen, Super Swipe/Premium, Filmabend-/Terminplanung, Werbung.
@@ -91,11 +91,27 @@ Architektur-Fluss: **Screens → Providers → Repositories/Services**
 - **User-Dokument:** wird bei Registrierung/Erstlogin einmalig in `users/{uid}` angelegt (nie überschrieben), inkl. eindeutigem Freundescode (`FILM-XXXX`, atomare Eindeutigkeitsprüfung über `friend_codes/{code}`)
 - **Namensergänzung:** Falls nach Google-/Apple-Login kein Name vorliegt, wird der Nutzer aktiv danach gefragt (keine generierten Namen)
 
+## Onboarding
+
+- **Ablauf:** Direkt nachdem `AppGate` feststellt, dass Name und Profil vollständig sind, aber
+  `users/{uid}.onboarding_completed` noch `false` ist, zeigt es statt `AppShell` den
+  `OnboardingScreen` – ein dreiteiliges Tutorial (`PageView`): (1) Rechts/Links = Like/Dislike,
+  (2) Runter/Hoch = Skip/Watchlist ("Vielleicht später"), (3) Freunde per Freundescode hinzufügen.
+  Genau diese beiden Themen fordert die Produktspezifikation, keine weiteren Folien wurden erfunden.
+- **Nur einmal, geräteübergreifend:** Der Abschluss (Button „Los geht's" auf der letzten Folie oder
+  „Überspringen" jederzeit) wird über `UserRepository.completeOnboarding` serverseitig auf
+  `users/{uid}.onboarding_completed` gespeichert (kein lokaler Gerätespeicher) – `currentUserDocProvider`
+  reagiert darauf reaktiv, `AppGate` schaltet automatisch zu `AppShell` weiter, ohne manuelle
+  Navigation. Ein Login auf einem neuen Gerät zeigt das Tutorial deshalb nicht erneut.
+- **Keine neue Security Rule nötig:** `firestore.rules` erlaubt für `users/{userId}` bereits jedes
+  Feld außer `uid`/`email`/`friend_code`/`created_at` als veränderlich für den Owner selbst – exakt
+  dasselbe Muster wie bei `updateName`/`updateProfilePicture`.
+
 ## Datenmodell (Profil & Freunde)
 
 | Collection | Zweck | Zugriff |
 |---|---|---|
-| `users/{uid}` | Privates Profil (Name, E-Mail, Freundescode, ...) | nur Owner |
+| `users/{uid}` | Privates Profil (Name, E-Mail, Freundescode, `onboarding_completed`, ...) | nur Owner |
 | `public_profiles/{uid}` | Für andere sichtbare Teilmenge (Name, Bild, Freundescode) | `get` für jeden authentifizierten User, kein `list` (keine Enumeration möglich) |
 | `friend_codes/{code}` | Eindeutigkeits-Lookup code → uid | `get` für jeden authentifizierten User |
 | `friend_requests/{fromUid}_{toUid}` | Offene Freundschaftsanfrage | nur Absender/Empfänger |

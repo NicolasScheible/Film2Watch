@@ -7,9 +7,11 @@ import '../theme/app_theme.dart';
 import 'app_shell.dart';
 import 'auth/auth_screen.dart';
 import 'auth/complete_profile_screen.dart';
+import 'onboarding/onboarding_screen.dart';
 
 /// Entscheidet auf Basis des Firebase-Auth-Zustands, ob der Auth-Bereich,
-/// die Profil-Vervollständigung oder die Haupt-App angezeigt wird.
+/// die Profil-Vervollständigung, das Onboarding-Tutorial oder die Haupt-App
+/// angezeigt wird.
 class AppGate extends ConsumerWidget {
   const AppGate({super.key});
 
@@ -39,6 +41,9 @@ class _AuthenticatedGate extends ConsumerWidget {
       data: (appUser) {
         if (appUser == null || appUser.name.trim().isEmpty) {
           return const CompleteProfileScreen();
+        }
+        if (!appUser.onboardingCompleted) {
+          return const OnboardingScreen();
         }
         // Fire-and-forget: `FutureProvider.family` cached pro uid, löst also
         // pro Login-Session genau einmal Permission-Anfrage/Registrierung

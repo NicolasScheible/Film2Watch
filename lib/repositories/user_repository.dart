@@ -91,6 +91,12 @@ class UserRepository {
     return batch.commit();
   }
 
+  /// Markiert das Onboarding-Tutorial als gesehen - wird nur auf
+  /// `users/{uid}` benötigt (`public_profiles` hat kein entsprechendes Feld).
+  Future<void> completeOnboarding(String uid) {
+    return _users.doc(uid).update({'onboarding_completed': true});
+  }
+
   /// Erstellt das User-Dokument samt öffentlichem Profil und eindeutigem
   /// Freundescode nur, wenn es noch nicht existiert. Ein bestehendes Profil
   /// wird dabei niemals überschrieben. Die Eindeutigkeitsprüfung des

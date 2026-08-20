@@ -33,7 +33,8 @@ void main() {
       expect(find.text('Swipe'), findsNothing);
     });
 
-    testWidgets('zeigt die Haupt-App, wenn ein User mit vollständigem Profil eingeloggt ist',
+    testWidgets(
+        'zeigt die Haupt-App, wenn ein User mit vollständigem Profil und abgeschlossenem Onboarding eingeloggt ist',
         (tester) async {
       final mockUser = MockUser(
         uid: 'uid-1',
@@ -49,6 +50,7 @@ void main() {
         'profile_picture': null,
         'friend_code': 'FILM-1234',
         'created_at': Timestamp.now(),
+        'onboarding_completed': true,
       });
 
       await tester.pumpWidget(
@@ -64,6 +66,78 @@ void main() {
 
       expect(find.text('Swipe'), findsWidgets);
       expect(find.text('Willkommen zurück'), findsNothing);
+    });
+
+    testWidgets(
+        'zeigt das Onboarding-Tutorial statt der Haupt-App, wenn der User es noch nicht abgeschlossen hat',
+        (tester) async {
+      final mockUser = MockUser(
+        uid: 'uid-2',
+        email: 'neu@film2watch.app',
+        displayName: 'Neu',
+      );
+      final mockAuth = MockFirebaseAuth(mockUser: mockUser, signedIn: true);
+      final fakeFirestore = FakeFirebaseFirestore();
+      await fakeFirestore.collection('users').doc('uid-2').set({
+        'uid': 'uid-2',
+        'name': 'Neu',
+        'email': 'neu@film2watch.app',
+        'profile_picture': null,
+        'friend_code': 'FILM-5678',
+        'created_at': Timestamp.now(),
+        'onboarding_completed': false,
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            firebaseAuthProvider.overrideWithValue(mockAuth),
+            firestoreProvider.overrideWithValue(fakeFirestore),
+          ],
+          child: const MaterialApp(home: AppGate()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rechts oder links wischen'), findsOneWidget);
+      expect(find.text('Swipe'), findsNothing);
+    });
+
+    testWidgets('wechselt nach Abschluss des Onboardings automatisch zur Haupt-App', (tester) async {
+      final mockUser = MockUser(
+        uid: 'uid-3',
+        email: 'neu3@film2watch.app',
+        displayName: 'Neu',
+      );
+      final mockAuth = MockFirebaseAuth(mockUser: mockUser, signedIn: true);
+      final fakeFirestore = FakeFirebaseFirestore();
+      await fakeFirestore.collection('users').doc('uid-3').set({
+        'uid': 'uid-3',
+        'name': 'Neu',
+        'email': 'neu3@film2watch.app',
+        'profile_picture': null,
+        'friend_code': 'FILM-9012',
+        'created_at': Timestamp.now(),
+        'onboarding_completed': false,
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            firebaseAuthProvider.overrideWithValue(mockAuth),
+            firestoreProvider.overrideWithValue(fakeFirestore),
+          ],
+          child: const MaterialApp(home: AppGate()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Rechts oder links wischen'), findsOneWidget);
+
+      await tester.tap(find.text('Überspringen'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Swipe'), findsWidgets);
+      expect(find.text('Rechts oder links wischen'), findsNothing);
     });
   });
 

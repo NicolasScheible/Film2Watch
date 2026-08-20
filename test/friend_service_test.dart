@@ -106,4 +106,27 @@ void main() {
     final after = (await userRepository.getUser('alice'))!.friendCode;
     expect(after, before);
   });
+
+  test('neu angelegte User haben das Onboarding noch nicht abgeschlossen', () async {
+    final user = await userRepository.getUser('alice');
+
+    expect(user!.onboardingCompleted, isFalse);
+  });
+
+  test('completeOnboarding markiert das Onboarding als abgeschlossen', () async {
+    await userRepository.completeOnboarding('alice');
+
+    final user = await userRepository.getUser('alice');
+    expect(user!.onboardingCompleted, isTrue);
+  });
+
+  test('completeOnboarding lässt Name und Friend Code unverändert', () async {
+    final before = await userRepository.getUser('alice');
+
+    await userRepository.completeOnboarding('alice');
+
+    final after = await userRepository.getUser('alice');
+    expect(after!.name, before!.name);
+    expect(after.friendCode, before.friendCode);
+  });
 }
