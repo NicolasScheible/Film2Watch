@@ -4,10 +4,10 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Gruppen-Matches**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB- und Swipe-System aus Schritt 3/3.1/4/5/6 unverändert, jetzt inkl. echter, serverseitiger Match-Erkennung: sobald alle aktuellen Mitglieder einer Gruppe denselben Film geliked haben, entsteht automatisch ein Match, das in Echtzeit in der Gruppe angezeigt wird.
+Aktueller Schritt: **Gruppenchat**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Swipe- und Match-System aus Schritt 3/3.1/4/5/6/7 unverändert, jetzt inkl. echtem Gruppenchat in Echtzeit über Firestore.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Gruppenchat, Filmabend-/Terminplanung, Push-Benachrichtigungen, Werbung, Premium.
+Filmabend-/Terminplanung, Push-Benachrichtigungen, Werbung, Premium.
 
 ## Tech-Stack
 
@@ -16,7 +16,7 @@ Gruppenchat, Filmabend-/Terminplanung, Push-Benachrichtigungen, Werbung, Premium
 - **Backend:** Firebase (Projekt `film2watch-3385c`)
   - Firebase Core – initialisiert
   - Firebase Authentication – **produktiv**: E-Mail/Passwort (Login, Registrierung, Passwort-Reset). Google- und Apple-Sign-In sind echt implementiert, benötigen aber noch externe Konfiguration (siehe „Offene externe Konfiguration" unten)
-  - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen, Gruppen-Swipes, Gruppen-Matches (siehe „Datenmodell" unten)
+  - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen, Gruppen-Swipes, Gruppen-Matches, Gruppenchat-Nachrichten (siehe „Datenmodell" unten)
   - Cloud Functions – **produktiv**: eine Firestore-getriggerte Function (`onSwipeWritten`) erkennt Matches serverseitig, siehe „Match-Funktion" unten
   - Firebase Cloud Messaging – als Dependency eingerichtet, noch keine Push-Logik
   - Firebase Storage – **produktiv**: Profilbild- und Gruppenbild-Upload/-Löschen
@@ -34,12 +34,15 @@ lib/
   screens/
     swipe/                             Platzhalter + Link zur TMDB-Testseite (Einstieg in die
                                        echte Swipe-Session erfolgt über eine Gruppe, siehe unten)
-    chat/                              Noch leerer Platzhalter-Bereich
+    chat/                              Echte Chat-Übersicht: listet die Gruppen des Nutzers,
+                                       Tippen öffnet den echten Gruppenchat (kein
+                                       gruppenübergreifender Chat)
     profile/                          Profil, Profil bearbeiten, Freund hinzufügen,
                                        Freundesanfragen
     groups/                           Gruppenliste, Gruppe erstellen/bearbeiten/Detail (inkl.
                                        Match-Liste), Freund einladen, Gruppeneinladungen, echte
-                                       Gruppen-Swipe-Session (`group_swipe_screen.dart`)
+                                       Gruppen-Swipe-Session (`group_swipe_screen.dart`) und
+                                       echter Gruppenchat (`group_chat_screen.dart`)
     movies/                            TMDB Test/Browse-Seite, Filmdetails (dient auch als
                                        Match-Detailansicht, siehe „Match-Funktion")
     auth/                             Login, Registrierung, Profil-Vervollständigung
@@ -50,13 +53,14 @@ lib/
     friends/              Avatar, Listenzeile (auch für Gruppenmitglieder/-liste genutzt)
     movies/                Filmkarte, zieh-/wischbare Swipe-Karte (`swipe_card.dart`),
                            Match-Karte (`match_card.dart`)
-  services/            Auth-, Friend-, Group-, Storage-, Tmdb-, TmdbImage- und Swipe-Service
-  repositories/        Firebase- und TMDB-Zugriffsschicht (inkl. Swipe- und Match-Repository)
+    chat/                  Chat-Bubble (`message_bubble.dart`)
+  services/            Auth-, Friend-, Group-, Storage-, Tmdb-, TmdbImage-, Swipe- und Chat-Service
+  repositories/        Firebase- und TMDB-Zugriffsschicht (inkl. Swipe-, Match- und Chat-Repository)
   models/               User-, PublicProfile-, FriendRequest-, Group-, GroupMember-,
                          GroupInvitation-, Movie-, MoviePage-, WatchProviderOption-,
-                         MovieSwipe-, MovieMatch-Modelle
+                         MovieSwipe-, MovieMatch-, ChatMessage-Modelle
   providers/            Riverpod-Provider (Auth-/Freundes-/Gruppen-/Profilbild-/TMDB-/Swipe-/
-                         Match-State, Formular-Controller)
+                         Match-/Chat-State, Formular-Controller)
   theme/                Dark-Theme, Farben
   utils/                 Validierung, Fehlerübersetzung, TMDB-Konfiguration
 firestore.rules         Security Rules für alle Firestore-Collections
@@ -232,6 +236,65 @@ serverseitigen Autorität gelöst – siehe „Match-Funktion" unten.
   vollständig serverseitig – `SwipeCard` und die Swipe-Business-Logik aus Schritt 6 wurden dafür
   nicht verändert.
 - **Nicht Teil dieses Schritts:** Gruppenchat, Filmabend-/Terminplanung, Push-Benachrichtigungen.
+
+## Datenmodell (Chat)
+
+| Collection | Zweck | Zugriff |
+|---|---|---|
+| `groups/{groupId}/messages/{messageId}` | Eine Chat-Nachricht (`sender_uid, text, created_at`) | lesbar/anlegbar für Mitglieder der Gruppe, kein Update/Delete |
+
+Firestore-Auto-ID pro Nachricht. Bewusst **keine** `sender_name`/`sender_profile_picture`-Kopie im
+Dokument: beide lassen sich zuverlässig über das bestehende `public_profiles/{uid}` nachschlagen
+(`publicProfileProvider`) – eine Kopie hier wäre unnötige Redundanz und könnte veralten, wenn sich
+Name/Bild später ändern. `created_at` wird ausschließlich serverseitig über
+`FieldValue.serverTimestamp()` gesetzt – die lokale Gerätezeit ist keine vertrauenswürdige Quelle;
+die Security Rule erzwingt das (`created_at == request.time`), ein client-gesetzter Zeitstempel
+wird abgelehnt.
+
+**Maximale Nachrichtenlänge:** 2000 Zeichen (`chatMaxMessageLength` in `lib/services/chat_service.dart`,
+identisch in `firestore.rules` gespiegelt). Ohne konkrete Vorgabe aus einer übergeordneten
+Spezifikation ein bewusst gewählter, dokumentierter Standardwert – groß genug für normale
+Chat-Nachrichten, klein genug, um kein Missbrauchsvektor für übergroße Dokumente zu sein.
+
+**Nachrichten sind in dieser ersten Version unveränderlich** (`allow update, delete: if false`):
+kein Bearbeiten/Löschen durch normale Mitglieder. Eine spätere Erweiterung (z. B. eigene
+Nachrichten löschen) ist ein eigener, bewusst nicht in diesem Schritt vorweggenommener
+Entwicklungsschritt.
+
+## Chat-Funktion
+
+- **Architektur:** `ChatRepository` (Firestore-Zugriff auf `groups/{groupId}/messages`) →
+  `ChatService` (validiert Text und prüft die Mitgliedschaft, bevor überhaupt geschrieben wird –
+  die Firestore Rules erzwingen dieselben Prüfungen zusätzlich serverseitig) →
+  `ChatSendController` (Senden auslösen) + `chatMessagesProvider`/`ChatHistoryController`
+  (Nachrichtenliste + Pagination) → UI. Kein direkter Firestore-Zugriff aus Widgets.
+- **Echtzeit:** `chatMessagesProvider(groupId)` ist ein Firestore-Snapshot-Stream der letzten 30
+  Nachrichten (älteste zuerst) – neue Nachrichten erscheinen ohne manuellen Reload bei allen
+  Gruppenmitgliedern gleichzeitig.
+- **Pagination:** Beim Öffnen wird bewusst nicht die komplette Historie geladen, sondern nur die
+  letzten 30 Nachrichten (`ChatRepository.watchLatestMessages`, `limitToLast`). Ältere Nachrichten
+  lassen sich über einen Button („Ältere Nachrichten laden") gezielt nachladen
+  (`ChatHistoryController.loadOlder`, einmaliger `get()` vor dem ältesten bekannten Zeitstempel) –
+  kein unbegrenzter Stream über die gesamte Historie.
+- **Bedienung:** Textfeld + Senden-Button unten, Senden auch über die Tastatur-Aktion (Enter/Send).
+  Leere oder nur aus Leerzeichen bestehende Nachrichten werden clientseitig gar nicht erst
+  abgeschickt; das Eingabefeld wird direkt nach dem Absenden geleert. Der Senden-Button ist
+  während eines laufenden Sendevorgangs deaktiviert (`state.isLoading` im `ChatSendController`) –
+  kein Doppel-Senden bei schnellem Mehrfach-Tap. Schlägt das Senden fehl, verschwindet die
+  eingegebene Nachricht nicht kommentarlos – ein verständlicher Fehler wird angezeigt.
+- **UI:** Eigene Nachrichten rechts (Akzentfarbe), fremde Nachrichten links mit echtem Avatar/Namen
+  aus `public_profiles`. Jede Nachricht zeigt Text und Uhrzeit. Ehrlicher Empty State „Noch keine
+  Nachrichten." – keine Demo-Nachricht. Bestehendes Dark Theme, keine neue Farbpalette.
+- **Gruppenintegration:** `GroupDetailScreen` hat einen echten „Chat"-Button neben „Filme swipen",
+  der `GroupChatScreen(groupId)` öffnet. Der globale **Chat**-Tab der Bottom Navigation (vorher ein
+  Platzhalter) zeigt jetzt die Gruppen des Nutzers – Tippen öffnet den jeweiligen echten Gruppenchat
+  (kein gruppenübergreifender Chat, kein Fake-Inhalt).
+- **Sicherheit:** Manipulierte `groupId` ermöglicht keinen Zugriff auf fremde Chats – das wird
+  unabhängig von der UI durch `firestore.rules` erzwungen (`isGroupMember(groupId)` für read/create,
+  `sender_uid == request.auth.uid`, `update`/`delete` kategorisch `false`).
+- **Nicht Teil dieses Schritts:** Match-Systemnachrichten im Chat, Push-Benachrichtigungen,
+  Filmabend-/Terminplanung, RSVP, Watch Party. Keine neue Cloud Function – normale
+  Chat-Nachrichten kommen ohne serverseitige Logik aus, Firestore Rules reichen aus.
 
 ## Profilbild
 

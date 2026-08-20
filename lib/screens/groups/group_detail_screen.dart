@@ -12,13 +12,13 @@ import '../../theme/app_theme.dart';
 import '../../utils/group_error_translator.dart';
 import '../movies/movie_detail_screen.dart';
 import 'edit_group_screen.dart';
+import 'group_chat_screen.dart';
 import 'group_swipe_screen.dart';
 import 'invite_friend_screen.dart';
 
 /// Detailseite einer Gruppe: Bild, Name, Mitglieder, rollenabhängige
-/// Aktionen, der Einstieg in die Gruppen-Swipe-Session sowie die echte
-/// Match-Liste. Noch kein Chat - der folgt in einem eigenen
-/// Entwicklungsschritt.
+/// Aktionen, der Einstieg in die Gruppen-Swipe-Session, die echte
+/// Match-Liste sowie der echte Gruppenchat.
 class GroupDetailScreen extends ConsumerWidget {
   const GroupDetailScreen({super.key, required this.groupId});
 
@@ -73,13 +73,29 @@ class GroupDetailScreen extends ConsumerWidget {
                 child: Text(group.name, style: Theme.of(context).textTheme.headlineSmall),
               ),
               const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => GroupSwipeScreen(groupId: groupId)),
-                ),
-                style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
-                icon: const Icon(Icons.movie_filter_outlined),
-                label: const Text('Filme swipen'),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => GroupSwipeScreen(groupId: groupId)),
+                      ),
+                      style: FilledButton.styleFrom(backgroundColor: AppColors.accent),
+                      icon: const Icon(Icons.movie_filter_outlined),
+                      label: const Text('Filme swipen'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => GroupChatScreen(groupId: groupId)),
+                      ),
+                      icon: const Icon(Icons.chat_bubble_outline),
+                      label: const Text('Chat'),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 32),
               Text('Matches', style: Theme.of(context).textTheme.titleMedium),

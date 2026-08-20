@@ -185,6 +185,30 @@ service cloud.firestore {
         allow read: if isGroupMember(groupId);
         allow write: if false;
       }
+
+      // Gruppenchat. Firestore Auto-ID, chronologisch über den
+      // serverseitigen `created_at`-Timestamp sortierbar - die lokale
+      // Gerätezeit ist keine vertrauenswürdige Quelle, daher muss
+      // `created_at` exakt `request.time` sein (nur von
+      // `FieldValue.serverTimestamp()` erfüllbar). Nachrichten sind in
+      // dieser ersten Version unveränderlich (kein Bearbeiten/Löschen durch
+      // normale Mitglieder) - eine spätere Erweiterung ist ein eigener
+      // Entwicklungsschritt. `hasOnly` verhindert zusätzliche, nicht
+      // vorgesehene Felder (z. B. eine untergeschobene Sender-Kopie).
+      match /messages/{messageId} {
+        allow read: if isGroupMember(groupId);
+
+        allow create: if isGroupMember(groupId)
+          && request.auth.uid == request.resource.data.sender_uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 2000
+          && request.resource.data.created_at == request.time
+          && request.resource.data.keys().hasOnly(['sender_uid', 'text', 'created_at']);
+
+        allow update: if false;
+        allow delete: if false;
+      }
     }
 
     // Offene Gruppeneinladungen. Dokument-ID ist deterministisch
