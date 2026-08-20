@@ -62,4 +62,17 @@ class SwipeRepository {
     final snapshot = await _swipes(groupId).where('uid', isEqualTo: uid).get();
     return snapshot.docs.map((doc) => (doc.data()['movie_id'] as num).toInt()).toSet();
   }
+
+  /// Alle Watchlist-Einträge (`decision == watchlist`) aller Mitglieder
+  /// dieser Gruppe, in Echtzeit - Grundlage für den Watchlist-Abgleich
+  /// innerhalb der Gruppe ("Du hast vorgemerkt" / "2/4 Mitglieder haben ihn
+  /// vorgemerkt"). Die Filterung auf tatsächlich noch aktuelle Mitglieder
+  /// übernimmt die aufrufende Provider-Schicht (analog zur bestehenden
+  /// Match-Erkennung, die ebenfalls nur aktuelle Mitglieder zählt).
+  Stream<List<MovieSwipe>> watchWatchlist(String groupId) {
+    return _swipes(groupId)
+        .where('decision', isEqualTo: SwipeDecision.watchlist.name)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map(MovieSwipe.fromFirestore).toList());
+  }
 }

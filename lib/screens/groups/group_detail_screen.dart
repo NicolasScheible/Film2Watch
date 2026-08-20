@@ -3,11 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../components/friends/user_avatar.dart';
 import '../../components/movies/match_card.dart';
+import '../../components/movies/watchlist_card.dart';
 import '../../models/group_member.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/group_action_controller.dart';
 import '../../providers/group_provider.dart';
 import '../../providers/match_provider.dart';
+import '../../providers/swipe_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/group_error_translator.dart';
 import '../movies/movie_detail_screen.dart';
@@ -18,7 +21,8 @@ import 'invite_friend_screen.dart';
 
 /// Detailseite einer Gruppe: Bild, Name, Mitglieder, rollenabhängige
 /// Aktionen, der Einstieg in die Gruppen-Swipe-Session, die echte
-/// Match-Liste sowie der echte Gruppenchat.
+/// Match-Liste, der gruppenweite Watchlist-Abgleich sowie der echte
+/// Gruppenchat.
 class GroupDetailScreen extends ConsumerWidget {
   const GroupDetailScreen({super.key, required this.groupId});
 
@@ -101,6 +105,10 @@ class GroupDetailScreen extends ConsumerWidget {
               Text('Matches', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               _MatchesSection(groupId: groupId),
+              const SizedBox(height: 32),
+              Text('Watchlist', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              _WatchlistSection(groupId: groupId),
               const SizedBox(height: 32),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -186,6 +194,67 @@ class _MatchesSection extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accent)),
       error: (error, _) => const Text(
         'Matches konnten nicht geladen werden.',
+        style: TextStyle(color: AppColors.textSecondary),
+      ),
+    );
+  }
+}
+
+/// Gruppenweiter Watchlist-Abgleich: zeigt jeden Film, den mindestens ein
+/// aktuelles Mitglied auf "Vielleicht später" gesetzt hat, mit einem Badge,
+/// das anzeigt, ob nur der aktuelle User oder mehrere Mitglieder ihn
+/// vorgemerkt haben. Rein persönliche Watchlist-Einträge pro Nutzer/Gruppe
+/// (siehe `SwipeDecision.watchlist`), keine gruppenübergreifende Ansicht.
+class _WatchlistSection extends ConsumerWidget {
+  const _WatchlistSection({required this.groupId});
+
+  final String groupId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final watchlistAsync = ref.watch(groupWatchlistProvider(groupId));
+    final myUid = ref.watch(authStateChangesProvider).value?.uid;
+    final totalMembers = ref.watch(groupMembersProvider(groupId)).value?.length;
+
+    return watchlistAsync.when(
+      data: (entries) {
+        if (entries.isEmpty) {
+          return const Text(
+            'Noch keine Filme auf der Watchlist.',
+            style: TextStyle(color: AppColors.textSecondary),
+          );
+        }
+        return SizedBox(
+          height: 210,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: entries.length,
+            separatorBuilder: (context, index) => const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final entry = entries[index];
+              final isOnlyMe = entry.memberUids.length == 1 &&
+                  myUid != null &&
+                  entry.memberUids.contains(myUid);
+              final badgeLabel = isOnlyMe
+                  ? 'Du hast vorgemerkt'
+                  : '${entry.memberUids.length}/${totalMembers ?? entry.memberUids.length} vorgemerkt';
+              return SizedBox(
+                width: 140,
+                child: WatchlistCard(
+                  movieId: entry.movieId,
+                  badgeLabel: badgeLabel,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => MovieDetailScreen(tmdbId: entry.movieId)),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accent)),
+      error: (error, _) => const Text(
+        'Watchlist konnte nicht geladen werden.',
         style: TextStyle(color: AppColors.textSecondary),
       ),
     );

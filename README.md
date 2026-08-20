@@ -4,18 +4,17 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Watchlist-Swipe**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Match-,
-Chat- und Push-System aus den vorherigen Schritten unverändert. Das Swipe-System hat jetzt alle vier
-in der Produktspezifikation genannten Richtungen: Like (rechts), Dislike (links), Skip (unten) und
-neu **Watchlist** (oben, „Vielleicht später") – beide „Vielleicht später"-Entscheidungen (Skip und
-Watchlist) sind rein persönlich, blenden den Film nur für den swipenden User aus und beeinflussen
-nie die Match-Erkennung oder die Swipes anderer Mitglieder (siehe „Swipe-Funktion" unten). Eine
-separate Watchlist-**Ansicht** (Liste der vorgemerkten Filme) ist bewusst noch nicht Teil dieses
-Schritts – die Produktspezifikation fordert für die Watchlist an dieser Stelle nur die Swipe-Erfassung,
-keine konkrete Anzeige-UI.
+Aktueller Schritt: **Watchlist-Ansicht**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Match-,
+Chat- und Push-System aus den vorherigen Schritten unverändert. Das Swipe-System hat weiterhin alle
+vier Richtungen (Like/Dislike/Skip/Watchlist, siehe „Swipe-Funktion"); neu ist die **Anzeige** der
+Watchlist: jede Gruppe zeigt jetzt in `GroupDetailScreen`, welche Filme aktuelle Mitglieder auf
+„Vielleicht später" gesetzt haben, mit Gruppen-Abgleich („Du hast vorgemerkt" bzw. „2/4 vorgemerkt").
+Die Watchlist ist bewusst **persönlich pro Nutzer und Gruppe** (kein globaler, gruppenübergreifender
+Bereich) – der Abgleich selbst ist rein lesend über die bestehenden Swipe-Dokumente, es gibt keine
+zweite Watchlist-Datenquelle und keine Möglichkeit, Einträge zu entfernen (nicht Teil dieses Schritts).
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Watchlist-Ansicht, Super Swipe/Premium, Filmabend-/Terminplanung, Werbung.
+Watchlist entfernen, Super Swipe/Premium, Filmabend-/Terminplanung, Werbung.
 
 ## Tech-Stack
 
@@ -192,8 +191,19 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   (`functions/matchEngine.js`, prüft ausschließlich `decision == 'like'`) nie als Like, können also
   selbst nie einen Match auslösen, und blockieren auch keinen zukünftigen Match anderer Mitglieder –
   dafür war keine Änderung an der Match-Engine nötig, die bestehende Prüfung war bereits eng genug
-  gefasst. Eine gemeinsame Anzeige der Watchlist-Einträge (gruppenweit oder persönlich) ist bewusst
-  noch nicht gebaut – die Produktspezifikation fordert an dieser Stelle nur die Swipe-Erfassung.
+  gefasst.
+- **Watchlist-Ansicht (`GroupDetailScreen`):** Ein „Watchlist"-Bereich zeigt jeden Film, den
+  mindestens ein *aktuelles* Mitglied der Gruppe vorgemerkt hat – rein lesend über die bestehenden
+  Watchlist-Swipes (`SwipeRepository.watchWatchlist`), keine neue Collection und keine zweite
+  Watchlist-Datenquelle. `groupWatchlistProvider` (`swipe_provider.dart`) fasst dabei mehrere
+  Mitglieder, die denselben Film vorgemerkt haben, zu einem Eintrag zusammen und filtert Einträge
+  ehemaliger Mitglieder heraus – analog zur bestehenden Match-Erkennung, die ebenfalls nur aktuelle
+  Mitglieder zählt. Jede Karte (`WatchlistCard`, optisch an `MatchCard` orientiert) zeigt ein Badge
+  mit dem Gruppen-Abgleich: „Du hast vorgemerkt", wenn nur der aktuelle User ihn vorgemerkt hat,
+  sonst „X/Y vorgemerkt" (X = Mitglieder mit Vormerkung, Y = aktuelle Gruppengröße). Die Watchlist
+  ist bewusst **persönlich pro Nutzer und Gruppe**, keine gruppenübergreifende Ansicht – Antippen
+  öffnet wie bei Matches die bestehende `MovieDetailScreen`. Entfernen von der Watchlist ist nicht
+  Teil dieses Schritts.
 - **Speichern & Fehlerbehandlung:** Die Entscheidung wird erst nach der Wisch-/Tap-Animation
   gespeichert; schlägt das Speichern fehl (kein Internet, Firestore-Fehler, ...), verschwindet die
   Karte **nicht** kommentarlos – ein Fehler wird angezeigt und der User kann es erneut versuchen.
