@@ -2,19 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../components/friends/user_avatar.dart';
+import '../../components/movies/match_card.dart';
 import '../../models/group_member.dart';
 import '../../providers/friend_provider.dart';
 import '../../providers/group_action_controller.dart';
 import '../../providers/group_provider.dart';
+import '../../providers/match_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/group_error_translator.dart';
+import '../movies/movie_detail_screen.dart';
 import 'edit_group_screen.dart';
 import 'group_swipe_screen.dart';
 import 'invite_friend_screen.dart';
 
 /// Detailseite einer Gruppe: Bild, Name, Mitglieder, rollenabhängige
-/// Aktionen sowie der Einstieg in die Gruppen-Swipe-Session. Noch keine
-/// Match-Auswertung, kein Chat - die folgen in eigenen Entwicklungsschritten.
+/// Aktionen, der Einstieg in die Gruppen-Swipe-Session sowie die echte
+/// Match-Liste. Noch kein Chat - der folgt in einem eigenen
+/// Entwicklungsschritt.
 class GroupDetailScreen extends ConsumerWidget {
   const GroupDetailScreen({super.key, required this.groupId});
 
@@ -78,6 +82,10 @@ class GroupDetailScreen extends ConsumerWidget {
                 label: const Text('Filme swipen'),
               ),
               const SizedBox(height: 32),
+              Text('Matches', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              _MatchesSection(groupId: groupId),
+              const SizedBox(height: 32),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -116,6 +124,50 @@ class GroupDetailScreen extends ConsumerWidget {
         },
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accent)),
         error: (error, _) => const Center(child: Text('Gruppe konnte nicht geladen werden.')),
+      ),
+    );
+  }
+}
+
+class _MatchesSection extends ConsumerWidget {
+  const _MatchesSection({required this.groupId});
+
+  final String groupId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final matchesAsync = ref.watch(groupMatchesProvider(groupId));
+
+    return matchesAsync.when(
+      data: (matches) {
+        if (matches.isEmpty) {
+          return const Text(
+            'Noch kein gemeinsamer Film.',
+            style: TextStyle(color: AppColors.textSecondary),
+          );
+        }
+        return SizedBox(
+          height: 210,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: matches.length,
+            separatorBuilder: (context, index) => const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final match = matches[index];
+              return MatchCard(
+                match: match,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => MovieDetailScreen(tmdbId: match.movieId)),
+                ),
+              );
+            },
+          ),
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accent)),
+      error: (error, _) => const Text(
+        'Matches konnten nicht geladen werden.',
+        style: TextStyle(color: AppColors.textSecondary),
       ),
     );
   }

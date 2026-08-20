@@ -4,10 +4,10 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Gruppen-Film-Swipe**. Profil-, Freundes-, Profilbild-, Gruppen- und TMDB-System aus Schritt 3/3.1/4/5 unverändert, jetzt inkl. echter Swipe-Funktion: Gruppenmitglieder bewerten TMDB-Filme per Wisch-Geste oder Button mit Like/Dislike, die Entscheidung wird dauerhaft in Firestore gespeichert.
+Aktueller Schritt: **Gruppen-Matches**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB- und Swipe-System aus Schritt 3/3.1/4/5/6 unverändert, jetzt inkl. echter, serverseitiger Match-Erkennung: sobald alle aktuellen Mitglieder einer Gruppe denselben Film geliked haben, entsteht automatisch ein Match, das in Echtzeit in der Gruppe angezeigt wird.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Match-Erkennung/-Anzeige (auch wenn mehrere Mitglieder denselben Film liken, wird das in diesem Schritt bewusst noch nicht ausgewertet), Gruppenchat, Push-Benachrichtigungen, Werbung, Premium.
+Gruppenchat, Filmabend-/Terminplanung, Push-Benachrichtigungen, Werbung, Premium.
 
 ## Tech-Stack
 
@@ -16,7 +16,8 @@ Match-Erkennung/-Anzeige (auch wenn mehrere Mitglieder denselben Film liken, wir
 - **Backend:** Firebase (Projekt `film2watch-3385c`)
   - Firebase Core – initialisiert
   - Firebase Authentication – **produktiv**: E-Mail/Passwort (Login, Registrierung, Passwort-Reset). Google- und Apple-Sign-In sind echt implementiert, benötigen aber noch externe Konfiguration (siehe „Offene externe Konfiguration" unten)
-  - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen, Gruppen-Swipes (siehe „Datenmodell" unten)
+  - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen, Gruppen-Swipes, Gruppen-Matches (siehe „Datenmodell" unten)
+  - Cloud Functions – **produktiv**: eine Firestore-getriggerte Function (`onSwipeWritten`) erkennt Matches serverseitig, siehe „Match-Funktion" unten
   - Firebase Cloud Messaging – als Dependency eingerichtet, noch keine Push-Logik
   - Firebase Storage – **produktiv**: Profilbild- und Gruppenbild-Upload/-Löschen
 - **Filmdaten:** TMDB API (`https://api.themoviedb.org/3`) – **produktiv**: Discover, Suche, Details, Watch-Provider (siehe „TMDB-Integration" unten). Kein eigener Filmdaten-Cache in Firestore, TMDB bleibt alleinige Quelle.
@@ -36,32 +37,33 @@ lib/
     chat/                              Noch leerer Platzhalter-Bereich
     profile/                          Profil, Profil bearbeiten, Freund hinzufügen,
                                        Freundesanfragen
-    groups/                           Gruppenliste, Gruppe erstellen/bearbeiten/Detail,
-                                       Freund einladen, Gruppeneinladungen, echte Gruppen-
-                                       Swipe-Session (`group_swipe_screen.dart`)
-    movies/                            TMDB Test/Browse-Seite, Filmdetails (Verifikation der
-                                       TMDB-Integration, keine Match-UI)
+    groups/                           Gruppenliste, Gruppe erstellen/bearbeiten/Detail (inkl.
+                                       Match-Liste), Freund einladen, Gruppeneinladungen, echte
+                                       Gruppen-Swipe-Session (`group_swipe_screen.dart`)
+    movies/                            TMDB Test/Browse-Seite, Filmdetails (dient auch als
+                                       Match-Detailansicht, siehe „Match-Funktion")
     auth/                             Login, Registrierung, Profil-Vervollständigung
     app_shell.dart      Bottom-Navigation der fünf Hauptbereiche
     app_gate.dart        Routing zwischen Auth-Bereich und Haupt-App anhand Auth-State
   components/
     auth/                Wiederverwendbare Auth-UI (Textfeld, Buttons)
     friends/              Avatar, Listenzeile (auch für Gruppenmitglieder/-liste genutzt)
-    movies/                Filmkarte (Poster + Titel + Bewertung), zieh-/wischbare Swipe-Karte
-                           (`swipe_card.dart`)
+    movies/                Filmkarte, zieh-/wischbare Swipe-Karte (`swipe_card.dart`),
+                           Match-Karte (`match_card.dart`)
   services/            Auth-, Friend-, Group-, Storage-, Tmdb-, TmdbImage- und Swipe-Service
-  repositories/        Firebase- und TMDB-Zugriffsschicht (inkl. Swipe-Repository)
+  repositories/        Firebase- und TMDB-Zugriffsschicht (inkl. Swipe- und Match-Repository)
   models/               User-, PublicProfile-, FriendRequest-, Group-, GroupMember-,
                          GroupInvitation-, Movie-, MoviePage-, WatchProviderOption-,
-                         MovieSwipe-Modelle
-  providers/            Riverpod-Provider (Auth-/Freundes-/Gruppen-/Profilbild-/TMDB-/Swipe-
-                         State, Formular-Controller)
+                         MovieSwipe-, MovieMatch-Modelle
+  providers/            Riverpod-Provider (Auth-/Freundes-/Gruppen-/Profilbild-/TMDB-/Swipe-/
+                         Match-State, Formular-Controller)
   theme/                Dark-Theme, Farben
   utils/                 Validierung, Fehlerübersetzung, TMDB-Konfiguration
 firestore.rules         Security Rules für alle Firestore-Collections
 firestore.indexes.json  Collection-Group-Index für „meine Gruppen"
 storage.rules           Security Rules für Firebase Storage (Profil-/Gruppenbilder)
 firestore-tests/        Node-basierte Security-Rules-Tests gegen den echten Firestore-/Storage-Emulator
+functions/               Cloud Functions (serverseitige Match-Erkennung, siehe „Match-Funktion")
 ```
 
 Architektur-Fluss: **Screens → Providers → Repositories/Services**
@@ -170,8 +172,66 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   werden.
 - **Leerer Zustand:** „Keine weiteren Filme verfügbar." wird ausschließlich angezeigt, wenn TMDB
   wirklich keine weiteren Seiten mehr liefert – kein endloser Ladeindikator.
-- **Nicht Teil dieses Schritts:** Match-Erkennung (auch wenn mehrere Mitglieder denselben Film
-  liken), Gruppenchat, Push-Benachrichtigungen.
+
+## Datenmodell (Matches)
+
+| Collection | Zweck | Zugriff |
+|---|---|---|
+| `groups/{groupId}/matches/{movieId}` | Ein Film, den **alle** aktuellen Mitglieder geliked haben (`movie_id, member_count, like_count, created_at`) | lesbar für alle Mitglieder der Gruppe, **kein** Client-Schreibzugriff (`allow write: if false`) |
+
+Auch hier: kein vollständiges TMDB-JSON in Firestore, nur die Match-Referenz (`movie_id` +
+Metadaten). Die Dokument-ID ist deterministisch die `movieId` – ein Film kann in einer Gruppe
+strukturell nie doppelt als Match entstehen.
+
+**Warum kategorisch kein Client-Schreibzugriff?** Ob ein Film ein Match ist, hängt von *allen*
+aktuellen Swipes *aller* aktuellen Mitglieder ab. Firestore Security Rules können das nicht
+sicher selbst prüfen – die Rules-Sprache kennt keine Aggregation/Schleife über eine beliebig
+lange Collection (kein `COUNT`, kein `WHERE`, kein `for`), nur `get()`/`exists()` auf einzelne,
+namentlich bekannte Pfade. Ein Client könnte also grundsätzlich ein manipuliertes Match-Dokument
+einreichen, ohne dass eine reine Rule das zuverlässig erkennen könnte. Diese technische Grenze
+wurde bewusst nicht mit einer unsicheren/getrickten Rule umgangen, sondern mit einer echten
+serverseitigen Autorität gelöst – siehe „Match-Funktion" unten.
+
+## Match-Funktion
+
+- **Serverseitige Erkennung (Cloud Function):** `functions/index.js` registriert einen
+  Firestore-Trigger `onSwipeWritten` auf `groups/{groupId}/swipes/{swipeId}`. Bei jedem
+  Anlegen/Ändern eines Swipes lädt `functions/matchEngine.js` (mit Admin-Rechten, umgeht die
+  Security Rules) die aktuelle Mitgliederliste der Gruppe sowie alle Swipes zum betroffenen Film
+  und prüft **pro Mitglieds-UID einzeln**, ob eine Like-Entscheidung vorliegt – bewusst keine
+  reine Like-*Anzahl* gegen die Mitgliederzahl, damit ein Swipe eines Users, der die Gruppe
+  zwischenzeitlich verlassen hat, nie fälschlich mitzählt. Haben alle aktuellen Mitglieder
+  geliked, wird das Match-Dokument einmalig und atomar (Firestore-Transaktion mit
+  Existenz-Prüfung) angelegt – race-condition-sicher, kein doppeltes Dokument, selbst wenn zwei
+  Mitglieder nahezu gleichzeitig liken.
+- **Client darf niemals selbst matchen:** Die Firestore Rules verbieten jeden Schreibzugriff auf
+  `matches` kategorisch (`allow write: if false`) – nur die Cloud Function (Admin-SDK) kann
+  Match-Dokumente erzeugen. Es gibt bewusst kein `match_service.dart` mit einer
+  Schreib-/Erzeugungs-Methode, da eine clientseitige „Match erzeugen"-Funktion ohnehin wirkungslos
+  wäre.
+- **Endgültiges Ergebnis:** Ändert ein Mitglied seine Bewertung, nachdem ein Match bereits
+  entstanden ist (Like → Dislike), oder verlässt es die Gruppe, bleibt das bestehende
+  Match-Dokument unverändert bestehen – ein Match ist ein dauerhafter Beleg, kein flüchtiger
+  Zustand, der bei einer Meinungsänderung wieder verschwindet (analog zu einem „Match" in
+  vergleichbaren Swipe-Apps). Solange ein Film hingegen noch **nicht** gematcht ist, wird jede
+  Bewertungsänderung korrekt in die laufende Auswertung einbezogen (Like → Dislike verhindert das
+  Zustandekommen, Dislike → Like kann es auslösen).
+- **Echtzeit-Anzeige:** `groupMatchesProvider(groupId)` (Riverpod `StreamProvider`) hält die
+  Match-Liste einer Gruppe live aktuell (`MatchRepository.watchMatches`, Firestore-Snapshot-
+  Stream) – kein manuelles Neuladen nötig.
+- **Match-Liste & -Details:** Ein echter „Matches"-Bereich in `GroupDetailScreen` zeigt die
+  Match-Karten (`MatchCard`, Poster im Vordergrund, Titel, Bewertung – echte TMDB-Daten über das
+  bestehende `movieDetailsProvider`, keine zweite API-Anbindung). Ohne Matches ein ehrlicher Empty
+  State „Noch kein gemeinsamer Film." – keine Fake-Karten. Antippen einer Match-Karte öffnet die
+  bestehende `MovieDetailScreen` (Poster, Backdrop, Titel, Beschreibung, Genres, Bewertung,
+  Laufzeit, Erscheinungsjahr, Streaming-Anbieter) – bewusst keine zweite, redundante
+  „Match-Detail"-Seite.
+- **Reaktion beim Swipen:** Entsteht während einer laufenden Swipe-Session ein neues Match, zeigt
+  `GroupSwipeScreen` einen „Match! 🍿"-Dialog mit Poster (reagiert auf `groupMatchesProvider`,
+  nicht auf eine eigene, redundante Zähllogik in der UI). Die Match-*Erkennung* selbst bleibt
+  vollständig serverseitig – `SwipeCard` und die Swipe-Business-Logik aus Schritt 6 wurden dafür
+  nicht verändert.
+- **Nicht Teil dieses Schritts:** Gruppenchat, Filmabend-/Terminplanung, Push-Benachrichtigungen.
 
 ## Profilbild
 
@@ -274,6 +334,11 @@ hinterlegt, sondern per `--dart-define` injiziert – siehe „TMDB-Integration"
 6. **TMDB API Read Access Token** – wird für alle echten TMDB-Requests benötigt (siehe
    „TMDB-Integration" oben). Ohne ihn zeigt die TMDB-Testseite den Hinweis „TMDB API Key wird
    benötigt.", es werden keine Fake-Daten angezeigt.
+7. **Cloud Functions deployen** – `functions/` (Schritt 7, serverseitige Match-Erkennung) muss
+   über `firebase deploy --only functions` veröffentlicht werden. Das Firebase-Projekt muss dafür
+   auf den **Blaze-Tarif (Pay-as-you-go)** umgestellt sein – Cloud Functions laufen nicht auf dem
+   kostenlosen Spark-Tarif. Ohne deployte Function entstehen echte Swipes weiterhin normal, aber
+   es werden **keine** Match-Dokumente erzeugt (die Match-Liste bleibt leer, kein Fake-Fallback).
 
 Bis diese Schritte durchgeführt sind, zeigen Google-/Apple-Login in der App einen echten,
 verständlichen Fehler statt eines funktionierenden Logins (kein Mock).
@@ -283,6 +348,11 @@ verständlichen Fehler statt eines funktionierenden Logins (kein Mock).
 `firestore.rules` und `storage.rules` werden mit echten Tests gegen die lokalen Firebase-
 Emulatoren verifiziert (unterstützen – anders als reine Flutter-Fakes – `exists()`, `resource`
 und Custom Functions). Details und Ausführung: [`firestore-tests/README.md`](firestore-tests/README.md).
+
+Die Match-*Erkennungslogik* (`functions/matchEngine.js`) wird separat als echter End-to-End-Test
+gegen den Firebase Functions Emulator + Firestore Emulator getestet (`functions/test/`, `npm test`
+in `functions/`) – Swipes werden real in Firestore geschrieben, der echte Cloud-Function-Trigger
+läuft mit, und es wird auf das entstehende (oder ausbleibende) Match-Dokument gewartet.
 
 ## Entwicklung
 

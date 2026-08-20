@@ -171,6 +171,20 @@ service cloud.firestore {
 
         allow delete: if false;
       }
+
+      // Gruppen-Matches (Filme, die alle aktuellen Mitglieder geliked haben).
+      // Dokument-ID ist deterministisch die movieId - ein Film kann in einer
+      // Gruppe strukturell nie doppelt als Match entstehen. WICHTIG: ob ein
+      // Match entsteht, hängt von der aktuellen Mitgliederzahl UND allen
+      // Swipes ab - das kann eine Security Rule (kein `for`/Aggregation über
+      // eine beliebig lange Members-Collection) nicht sicher selbst prüfen.
+      // Deshalb erzeugt ausschließlich die serverseitige Cloud Function
+      // `functions/index.js` (Admin-SDK, umgeht Rules) Match-Dokumente; aus
+      // dem Client heraus ist jeglicher Schreibzugriff kategorisch verboten.
+      match /matches/{matchId} {
+        allow read: if isGroupMember(groupId);
+        allow write: if false;
+      }
     }
 
     // Offene Gruppeneinladungen. Dokument-ID ist deterministisch

@@ -1,0 +1,16 @@
+{
+  "name": "film2watch-functions",
+  "description": "Film2Watch Cloud Functions - serverseitige Gruppen-Match-Erkennung",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^5.1.1"
+  }
+}
