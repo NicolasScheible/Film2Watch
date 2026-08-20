@@ -88,9 +88,10 @@ async function evaluateMatch({ firestore, groupId, movieId }) {
     }
     transaction.set(matchRef, {
       movie_id: movieId,
-      member_count: memberCount,
-      like_count: likeCount,
-      created_at: new Date(),
+      // Momentaufnahme der Mitglieder, die den Match ausmachen - sortiert
+      // für deterministische, diff-freundliche Vergleiche in Tests.
+      member_uids: [...memberUids].sort(),
+      matched_at: new Date(),
     });
   });
 

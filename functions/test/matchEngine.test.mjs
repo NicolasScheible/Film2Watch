@@ -79,8 +79,7 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
 
     const snap = await waitForMatch('g1', 601);
     assert.equal(snap.exists, true);
-    assert.equal(snap.data().member_count, 2);
-    assert.equal(snap.data().like_count, 2);
+    assert.deepEqual(snap.data().member_uids, ['alice', 'bob']);
   });
 
   it('2. 2 Mitglieder + ein Like/ein Dislike -> kein Match', async () => {
@@ -114,7 +113,7 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
 
     const snap = await waitForMatch('g5', 605);
     assert.equal(snap.exists, true);
-    assert.equal(snap.data().member_count, 3);
+    assert.deepEqual(snap.data().member_uids, ['alice', 'bob', 'carol']);
   });
 
   it('6. bereits bestehender Match -> kein Duplikat', async () => {
@@ -123,7 +122,7 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
     await setSwipe('g6', 'bob', 606, 'like');
     const first = await waitForMatch('g6', 606);
     assert.equal(first.exists, true);
-    const originalCreatedAt = first.data().created_at.toMillis();
+    const originalMatchedAt = first.data().matched_at.toMillis();
 
     // Erneuter Schreibvorgang (z. B. erneutes Bestätigen des Likes) darf das
     // bestehende Match-Dokument nicht duplizieren oder überschreiben.
@@ -131,7 +130,7 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const second = await matchRef('g6', 606).get();
-    assert.equal(second.data().created_at.toMillis(), originalCreatedAt);
+    assert.equal(second.data().matched_at.toMillis(), originalMatchedAt);
     const allMatches = await db.collection('groups/g6/matches').get();
     assert.equal(allMatches.size, 1);
   });
@@ -209,5 +208,30 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const stillMatch612 = await matchRef('g12', 612).get();
     assert.equal(stillMatch612.exists, true);
+  });
+
+  it('13. echte parallele Verarbeitung erzeugt konsistent genau ein Match-Dokument', async () => {
+    await createGroup('g13', ['alice', 'bob', 'carol']);
+    await setSwipe('g13', 'alice', 613, 'like');
+    await setSwipe('g13', 'bob', 613, 'like');
+    await setSwipe('g13', 'carol', 613, 'like');
+
+    // Ruft evaluateMatch (dieselbe Funktion, die der echte Trigger nutzt)
+    // absichtlich mehrfach *gleichzeitig* auf - simuliert mehrere parallel
+    // ausgeführte Trigger-Instanzen für dasselbe Ereignis (Cloud Functions
+    // garantieren nur "at-least-once"-Zustellung). Die Firestore-Transaktion
+    // in matchEngine.js muss das serialisieren, ohne ein Duplikat oder einen
+    // inkonsistenten Zustand zu erzeugen.
+    await Promise.all([
+      evaluateMatch({ firestore: db, groupId: 'g13', movieId: 613 }),
+      evaluateMatch({ firestore: db, groupId: 'g13', movieId: 613 }),
+      evaluateMatch({ firestore: db, groupId: 'g13', movieId: 613 }),
+      evaluateMatch({ firestore: db, groupId: 'g13', movieId: 613 }),
+      evaluateMatch({ firestore: db, groupId: 'g13', movieId: 613 }),
+    ]);
+
+    const allMatches = await db.collection('groups/g13/matches').get();
+    assert.equal(allMatches.size, 1);
+    assert.deepEqual(allMatches.docs[0].data().member_uids, ['alice', 'bob', 'carol']);
   });
 });

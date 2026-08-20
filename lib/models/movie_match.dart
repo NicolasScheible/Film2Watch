@@ -6,29 +6,32 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// Filmdaten werden beim Anzeigen live über [movieId] von TMDB nachgeladen.
 ///
 /// Kein `toFirestore()`: Match-Dokumente werden ausschließlich serverseitig
-/// von der Cloud Function `functions/index.js` erzeugt (Admin-SDK, umgeht die
-/// Firestore Security Rules) - der Client liest hier nur, er schreibt nie.
+/// von den Cloud Functions (`functions/matchEngine.js`, Admin-SDK) erzeugt -
+/// die Firestore Security Rules verbieten jeden Client-Schreibzugriff
+/// kategorisch (`allow write: if false`). Der Client liest hier nur.
 class MovieMatch {
   const MovieMatch({
     required this.movieId,
-    required this.memberCount,
-    required this.likeCount,
-    required this.createdAt,
+    required this.memberUids,
+    required this.matchedAt,
   });
 
   final int movieId;
-  final int memberCount;
-  final int likeCount;
-  final DateTime createdAt;
+
+  /// Die Mitglieder, die diesen Film geliked und damit den Match ausgelöst
+  /// haben - eine Momentaufnahme zum Zeitpunkt des Matches, unabhängig von
+  /// späteren Mitgliedschaftsänderungen.
+  final List<String> memberUids;
+
+  final DateTime matchedAt;
 
   factory MovieMatch.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
-    final createdAtValue = data['created_at'];
+    final matchedAtValue = data['matched_at'];
     return MovieMatch(
       movieId: (data['movie_id'] as num?)?.toInt() ?? 0,
-      memberCount: (data['member_count'] as num?)?.toInt() ?? 0,
-      likeCount: (data['like_count'] as num?)?.toInt() ?? 0,
-      createdAt: createdAtValue is Timestamp ? createdAtValue.toDate() : DateTime.now(),
+      memberUids: (data['member_uids'] as List<dynamic>?)?.cast<String>() ?? const [],
+      matchedAt: matchedAtValue is Timestamp ? matchedAtValue.toDate() : DateTime.now(),
     );
   }
 }

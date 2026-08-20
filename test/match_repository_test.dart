@@ -8,21 +8,19 @@ void main() {
   group('MovieMatch', () {
     test('Firestore-Mapping liest alle Felder korrekt', () async {
       final firestore = FakeFirebaseFirestore();
-      final createdAt = DateTime(2026, 1, 1, 12);
+      final matchedAt = DateTime(2026, 1, 1, 12);
       final ref = firestore.collection('groups').doc('g1').collection('matches').doc('550');
       await ref.set({
         'movie_id': 550,
-        'member_count': 3,
-        'like_count': 3,
-        'created_at': Timestamp.fromDate(createdAt),
+        'member_uids': ['alice', 'bob', 'carol'],
+        'matched_at': Timestamp.fromDate(matchedAt),
       });
 
       final match = MovieMatch.fromFirestore(await ref.get());
 
       expect(match.movieId, 550);
-      expect(match.memberCount, 3);
-      expect(match.likeCount, 3);
-      expect(match.createdAt, createdAt);
+      expect(match.memberUids, ['alice', 'bob', 'carol']);
+      expect(match.matchedAt, matchedAt);
     });
   });
 
@@ -35,12 +33,11 @@ void main() {
       repository = MatchRepository(firestore);
     });
 
-    Future<void> seedMatch(String groupId, int movieId, DateTime createdAt) {
+    Future<void> seedMatch(String groupId, int movieId, DateTime matchedAt) {
       return firestore.collection('groups').doc(groupId).collection('matches').doc('$movieId').set({
         'movie_id': movieId,
-        'member_count': 2,
-        'like_count': 2,
-        'created_at': Timestamp.fromDate(createdAt),
+        'member_uids': ['alice', 'bob'],
+        'matched_at': Timestamp.fromDate(matchedAt),
       });
     }
 

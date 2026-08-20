@@ -4,7 +4,12 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Push-Notifications**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Swipe-, Match- und Chat-System aus Schritt 3/3.1/4/5/6/7/8 unverändert, jetzt inkl. echter Push-Notifications über Firebase Cloud Messaging für Freundschaftsanfragen, Gruppeneinladungen, Matches und Chat-Nachrichten.
+Aktueller Schritt: **Match-System (vervollständigt)**. Profil-, Freundes-, Profilbild-, Gruppen-,
+TMDB-, Swipe-, Chat- und Push-System aus den vorherigen Schritten unverändert. Das bestehende
+Match-System wurde gezielt vervollständigt statt neu gebaut: schlankeres Datenmodell
+(`member_uids`/`matched_at` statt `member_count`/`like_count`/`created_at`), ein neuer Test für
+echte parallele Trigger-Verarbeitung, und der bisher als Platzhalter belassene globale
+„Matches"-Tab zeigt jetzt echte, gruppenübergreifende Match-Daten (siehe „Match-System" unten).
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
 Filmabend-/Terminplanung, Werbung, Premium.
@@ -17,7 +22,7 @@ Filmabend-/Terminplanung, Werbung, Premium.
   - Firebase Core – initialisiert
   - Firebase Authentication – **produktiv**: E-Mail/Passwort (Login, Registrierung, Passwort-Reset). Google- und Apple-Sign-In sind echt implementiert, benötigen aber noch externe Konfiguration (siehe „Offene externe Konfiguration" unten)
   - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen, Gruppen-Swipes, Gruppen-Matches, Gruppenchat-Nachrichten, FCM-Geräte-Tokens (siehe „Datenmodell" unten)
-  - Cloud Functions – **produktiv**: `onSwipeWritten` erkennt Matches serverseitig (siehe „Match-Funktion"); vier weitere Functions versenden Push-Notifications (siehe „Push-Notifications" unten)
+  - Cloud Functions – **produktiv**: `onSwipeWritten` erkennt Matches serverseitig (siehe „Match-System"); vier weitere Functions versenden Push-Notifications (siehe „Push-Notifications" unten)
   - Firebase Cloud Messaging – **produktiv**: Freundschaftsanfragen, Gruppeneinladungen, Matches, Chat-Nachrichten (siehe „Push-Notifications" unten)
   - Firebase Storage – **produktiv**: Profilbild- und Gruppenbild-Upload/-Löschen
 - **Filmdaten:** TMDB API (`https://api.themoviedb.org/3`) – **produktiv**: Discover, Suche, Details, Watch-Provider (siehe „TMDB-Integration" unten). Kein eigener Filmdaten-Cache in Firestore, TMDB bleibt alleinige Quelle.
@@ -44,7 +49,9 @@ lib/
                                        Gruppen-Swipe-Session (`group_swipe_screen.dart`) und
                                        echter Gruppenchat (`group_chat_screen.dart`)
     movies/                            TMDB Test/Browse-Seite, Filmdetails (dient auch als
-                                       Match-Detailansicht, siehe „Match-Funktion")
+                                       Match-Detailansicht, siehe „Match-System")
+    matches/                           Gruppenübergreifender „Matches"-Tab (`matches_screen.dart`,
+                                       siehe „Match-System")
     auth/                             Login, Registrierung, Profil-Vervollständigung
     app_shell.dart      Bottom-Navigation der fünf Hauptbereiche
     app_gate.dart        Routing zwischen Auth-Bereich und Haupt-App anhand Auth-State
@@ -180,15 +187,21 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
 - **Leerer Zustand:** „Keine weiteren Filme verfügbar." wird ausschließlich angezeigt, wenn TMDB
   wirklich keine weiteren Seiten mehr liefert – kein endloser Ladeindikator.
 
-## Datenmodell (Matches)
+## Match-System
+
+### Datenmodell
 
 | Collection | Zweck | Zugriff |
 |---|---|---|
-| `groups/{groupId}/matches/{movieId}` | Ein Film, den **alle** aktuellen Mitglieder geliked haben (`movie_id, member_count, like_count, created_at`) | lesbar für alle Mitglieder der Gruppe, **kein** Client-Schreibzugriff (`allow write: if false`) |
+| `groups/{groupId}/matches/{movieId}` | Ein Film, den **alle** aktuellen Mitglieder geliked haben (`movie_id, member_uids, matched_at`) | lesbar für alle Mitglieder der Gruppe, **kein** Client-Schreibzugriff (`allow write: if false`) |
 
-Auch hier: kein vollständiges TMDB-JSON in Firestore, nur die Match-Referenz (`movie_id` +
-Metadaten). Die Dokument-ID ist deterministisch die `movieId` – ein Film kann in einer Gruppe
-strukturell nie doppelt als Match entstehen.
+Kein vollständiges TMDB-JSON in Firestore, nur die Match-Referenz: `movie_id` (für die
+TMDB-Auflösung), `member_uids` (Momentaufnahme der Mitglieder, die den Match ausgelöst haben,
+sortiert für deterministische Vergleiche) und `matched_at` (Zeitpunkt der Entstehung). Die
+Dokument-ID ist deterministisch die `movieId` – ein Film kann in einer Gruppe strukturell nie
+doppelt als Match entstehen. Keine weiteren Felder (z. B. eine separate Like-/Mitgliederzahl) –
+`member_uids.length` ergibt sich bereits aus dem Array, ein Extra-Feld wäre redundante, potenziell
+veraltende Ableitung.
 
 **Warum kategorisch kein Client-Schreibzugriff?** Ob ein Film ein Match ist, hängt von *allen*
 aktuellen Swipes *aller* aktuellen Mitglieder ab. Firestore Security Rules können das nicht
@@ -197,25 +210,26 @@ lange Collection (kein `COUNT`, kein `WHERE`, kein `for`), nur `get()`/`exists()
 namentlich bekannte Pfade. Ein Client könnte also grundsätzlich ein manipuliertes Match-Dokument
 einreichen, ohne dass eine reine Rule das zuverlässig erkennen könnte. Diese technische Grenze
 wurde bewusst nicht mit einer unsicheren/getrickten Rule umgangen, sondern mit einer echten
-serverseitigen Autorität gelöst – siehe „Match-Funktion" unten.
+serverseitigen Autorität gelöst (siehe unten). Die Security Rule selbst erlaubt Lesen nur
+Gruppenmitgliedern und verbietet `create`/`update`/`delete` für jeden Client kategorisch
+(`allow write: if false`) – unverändert seit der ersten Match-Implementierung, da diese
+Anforderung bereits vollständig erfüllt war.
 
-## Match-Funktion
+### Match-Erkennung (Cloud Function)
 
-- **Serverseitige Erkennung (Cloud Function):** `functions/index.js` registriert einen
-  Firestore-Trigger `onSwipeWritten` auf `groups/{groupId}/swipes/{swipeId}`. Bei jedem
-  Anlegen/Ändern eines Swipes lädt `functions/matchEngine.js` (mit Admin-Rechten, umgeht die
-  Security Rules) die aktuelle Mitgliederliste der Gruppe sowie alle Swipes zum betroffenen Film
-  und prüft **pro Mitglieds-UID einzeln**, ob eine Like-Entscheidung vorliegt – bewusst keine
-  reine Like-*Anzahl* gegen die Mitgliederzahl, damit ein Swipe eines Users, der die Gruppe
-  zwischenzeitlich verlassen hat, nie fälschlich mitzählt. Haben alle aktuellen Mitglieder
-  geliked, wird das Match-Dokument einmalig und atomar (Firestore-Transaktion mit
-  Existenz-Prüfung) angelegt – race-condition-sicher, kein doppeltes Dokument, selbst wenn zwei
-  Mitglieder nahezu gleichzeitig liken.
-- **Client darf niemals selbst matchen:** Die Firestore Rules verbieten jeden Schreibzugriff auf
-  `matches` kategorisch (`allow write: if false`) – nur die Cloud Function (Admin-SDK) kann
-  Match-Dokumente erzeugen. Es gibt bewusst kein `match_service.dart` mit einer
-  Schreib-/Erzeugungs-Methode, da eine clientseitige „Match erzeugen"-Funktion ohnehin wirkungslos
-  wäre.
+- **Serverseitige Erkennung:** `functions/index.js` registriert einen Firestore-Trigger
+  `onSwipeWritten` auf `groups/{groupId}/swipes/{swipeId}`. Bei jedem Anlegen/Ändern eines Swipes
+  lädt `functions/matchEngine.js` (mit Admin-Rechten, umgeht die Security Rules) die aktuelle
+  Mitgliederliste der Gruppe sowie alle Swipes zum betroffenen Film und prüft **pro Mitglieds-UID
+  einzeln**, ob eine Like-Entscheidung vorliegt – bewusst keine reine Like-*Anzahl* gegen die
+  Mitgliederzahl, damit ein Swipe eines Users, der die Gruppe zwischenzeitlich verlassen hat, nie
+  fälschlich mitzählt. Haben alle aktuellen Mitglieder geliked, wird das Match-Dokument einmalig
+  und atomar (Firestore-Transaktion mit Existenz-Prüfung) angelegt – race-condition-sicher, kein
+  doppeltes Dokument, selbst wenn mehrere Mitglieder nahezu gleichzeitig liken oder derselbe
+  Trigger (Cloud Functions garantieren nur „at-least-once") mehrfach/parallel ausgeführt wird.
+- **Client darf niemals selbst matchen:** nur die Cloud Function (Admin-SDK) kann Match-Dokumente
+  erzeugen. Es gibt bewusst kein `match_service.dart` mit einer Schreib-/Erzeugungs-Methode, da
+  eine clientseitige „Match erzeugen"-Funktion ohnehin wirkungslos wäre.
 - **Endgültiges Ergebnis:** Ändert ein Mitglied seine Bewertung, nachdem ein Match bereits
   entstanden ist (Like → Dislike), oder verlässt es die Gruppe, bleibt das bestehende
   Match-Dokument unverändert bestehen – ein Match ist ein dauerhafter Beleg, kein flüchtiger
@@ -223,22 +237,61 @@ serverseitigen Autorität gelöst – siehe „Match-Funktion" unten.
   vergleichbaren Swipe-Apps). Solange ein Film hingegen noch **nicht** gematcht ist, wird jede
   Bewertungsänderung korrekt in die laufende Auswertung einbezogen (Like → Dislike verhindert das
   Zustandekommen, Dislike → Like kann es auslösen).
+
+### Push-Verhalten
+
+Matches nutzen dieselbe Push-Infrastruktur wie Freundschaftsanfragen, Gruppeneinladungen und
+Chat-Nachrichten (siehe „Push-Notifications" unten) – keine zweite, parallele Benachrichtigungs-
+oder Duplikat-Schutz-Architektur. `functions/notifyMatch.js` reagiert auf das `onCreate` des
+Match-Dokuments und informiert alle aktuellen Mitglieder der Gruppe („Neuer Match!" + Gruppenname).
+Der Duplikat-Schutz läuft über dieselbe `claimNotification()`-Transaktion wie bei den anderen drei
+Ereignistypen: da das Match-Dokument selbst bereits einmalig/atomar angelegt wird (siehe oben),
+kann `onMatchCreated` ohnehin nur einmal pro Match feuern – `claimNotification()` sichert
+zusätzlich gegen die „at-least-once"-Zustellung von Cloud Functions ab, damit trotzdem nie zwei
+Notification-Runden für dasselbe Match verschickt werden.
+
+### UI
+
 - **Echtzeit-Anzeige:** `groupMatchesProvider(groupId)` (Riverpod `StreamProvider`) hält die
   Match-Liste einer Gruppe live aktuell (`MatchRepository.watchMatches`, Firestore-Snapshot-
-  Stream) – kein manuelles Neuladen nötig.
-- **Match-Liste & -Details:** Ein echter „Matches"-Bereich in `GroupDetailScreen` zeigt die
-  Match-Karten (`MatchCard`, Poster im Vordergrund, Titel, Bewertung – echte TMDB-Daten über das
-  bestehende `movieDetailsProvider`, keine zweite API-Anbindung). Ohne Matches ein ehrlicher Empty
-  State „Noch kein gemeinsamer Film." – keine Fake-Karten. Antippen einer Match-Karte öffnet die
-  bestehende `MovieDetailScreen` (Poster, Backdrop, Titel, Beschreibung, Genres, Bewertung,
-  Laufzeit, Erscheinungsjahr, Streaming-Anbieter) – bewusst keine zweite, redundante
-  „Match-Detail"-Seite.
+  Stream, neueste zuerst nach `matched_at`) – kein manuelles Neuladen nötig.
+- **Gruppen-Matches:** Ein „Matches"-Bereich in `GroupDetailScreen` zeigt die Match-Karten
+  (`MatchCard`) der jeweiligen Gruppe. Ohne Matches ein ehrlicher Empty State „Noch kein
+  gemeinsamer Film." – keine Fake-Karten.
+- **Globaler „Matches"-Tab:** `MatchesScreen` (bisher Platzhalter aus Schritt 1) zeigt jetzt echte,
+  gruppenübergreifende Match-Daten als Grid, sortiert über alle Gruppen hinweg nach `matched_at`
+  (neueste zuerst). `allMyMatchesProvider` (`lib/providers/match_provider.dart`) kombiniert dafür
+  reaktiv `myGroupsProvider` mit je einem `groupMatchesProvider(groupId)` pro Gruppe – reine
+  Riverpod-Provider-Komposition, kein `MatchService` nötig (siehe Doc-Kommentar dort). Jede Karte
+  zeigt zusätzlich den Namen der Gruppe, in der der Match entstanden ist. Ohne Matches derselbe
+  ehrliche Empty State wie in der Gruppenansicht.
+- **Match-Karte (`MatchCard`):** Poster, Titel, Erscheinungsjahr, Bewertung und Genres – echte
+  TMDB-Daten über das bestehende `movieDetailsProvider`, keine zweite API-Anbindung. Jede Karte
+  lädt ihre TMDB-Daten unabhängig von den anderen, damit ein einzelner TMDB-Fehler nie die
+  restliche Liste blockiert. Die Karte selbst legt keine feste Breite mehr fest (nötig für die
+  duale Verwendung: feste Breite in der horizontalen Gruppenliste, variable Breite im
+  gruppenübergreifenden Grid) – die Breite bestimmt jeweils der Aufrufer.
+- **TMDB-Auflösung:** Das Match-Dokument selbst enthält nur `movie_id` – Titel, Poster, Jahr,
+  Bewertung und Genres werden bei jedem Laden frisch von TMDB nachgeladen. Ist TMDB für einen
+  einzelnen Film nicht erreichbar, bleibt der Match trotzdem sichtbar (aus Firestore geladen) mit
+  einem ehrlichen Lade-/Fehlerzustand auf der Karte (Ladeindikator bzw. Fehler-Icon) – kein Block
+  der restlichen Liste, keine Fake-Daten als Ersatz.
 - **Reaktion beim Swipen:** Entsteht während einer laufenden Swipe-Session ein neues Match, zeigt
   `GroupSwipeScreen` einen „Match! 🍿"-Dialog mit Poster (reagiert auf `groupMatchesProvider`,
   nicht auf eine eigene, redundante Zähllogik in der UI). Die Match-*Erkennung* selbst bleibt
   vollständig serverseitig – `SwipeCard` und die Swipe-Business-Logik aus Schritt 6 wurden dafür
   nicht verändert.
-- **Nicht Teil dieses Schritts:** Gruppenchat, Filmabend-/Terminplanung, Push-Benachrichtigungen.
+- Antippen einer Match-Karte (in der Gruppen- wie in der globalen Ansicht) öffnet die bestehende
+  `MovieDetailScreen` (Poster, Backdrop, Titel, Beschreibung, Genres, Bewertung, Laufzeit,
+  Erscheinungsjahr, Streaming-Anbieter) – bewusst keine zweite, redundante „Match-Detail"-Seite.
+- **Nicht Teil des Match-Systems:** Filmabend-/Terminplanung.
+
+### Offene externe Deployments
+
+Keine – die Firestore Rules, die Cloud Functions und der globale Matches-Tab sind vollständig
+funktionsfähig ohne weitere externe Konfiguration. Die offenen externen Konfigurationen des
+Gesamtprojekts (Google/Apple Sign-In, APNs) betreffen nicht das Match-System und sind unter
+„Offene externe Konfiguration" weiter unten aufgeführt.
 
 ## Datenmodell (Chat)
 

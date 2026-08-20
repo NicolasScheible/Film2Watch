@@ -46,9 +46,8 @@ before(async () => {
     // Cloud Function, ohne die Function selbst hier auszuführen.
     await db.doc('groups/mgroup1/matches/550').set({
       movie_id: 550,
-      member_count: 2,
-      like_count: 2,
-      created_at: now(),
+      member_uids: ['alice', 'bob'],
+      matched_at: now(),
     });
   });
 });
@@ -68,9 +67,8 @@ describe('groups/{groupId}/matches/{matchId}', () => {
     await assertFails(
       db.doc('groups/mgroup1/matches/999').set({
         movie_id: 999,
-        member_count: 2,
-        like_count: 2,
-        created_at: now(),
+        member_uids: ['alice', 'bob'],
+        matched_at: now(),
       }),
     );
   });
@@ -91,9 +89,8 @@ describe('groups/{groupId}/matches/{matchId}', () => {
     await assertFails(
       db.doc('groups/mgroup1/matches/12345').set({
         movie_id: 12345,
-        member_count: 2,
-        like_count: 2,
-        created_at: now(),
+        member_uids: ['alice', 'bob'],
+        matched_at: now(),
       }),
     );
   });
@@ -105,16 +102,15 @@ describe('groups/{groupId}/matches/{matchId}', () => {
     await assertFails(
       db.doc('groups/mgroup1/matches/54321').set({
         movie_id: 54321,
-        member_count: 2,
-        like_count: 2,
-        created_at: now(),
+        member_uids: ['alice', 'bob'],
+        matched_at: now(),
       }),
     );
   });
 
   it('lehnt es ab, dass ein Mitglied ein bestehendes Match verändert', async () => {
     const db = testEnv.authenticatedContext('bob').firestore();
-    await assertFails(db.doc('groups/mgroup1/matches/550').update({ like_count: 99 }));
+    await assertFails(db.doc('groups/mgroup1/matches/550').update({ member_uids: ['bob'] }));
   });
 
   it('lehnt es ab, dass ein Mitglied ein bestehendes Match löscht', async () => {
@@ -127,9 +123,8 @@ describe('groups/{groupId}/matches/{matchId}', () => {
     await assertFails(
       db.doc('groups/mgroup1/matches/550').set({
         movie_id: 550,
-        member_count: 1,
-        like_count: 1,
-        created_at: now(),
+        member_uids: ['bob'],
+        matched_at: now(),
       }),
     );
   });

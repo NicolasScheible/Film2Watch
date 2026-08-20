@@ -89,9 +89,8 @@ void main() {
         (tester) async {
       await firestore.collection('groups').doc(groupId).collection('matches').doc('550').set({
         'movie_id': 550,
-        'member_count': 2,
-        'like_count': 2,
-        'created_at': Timestamp.now(),
+        'member_uids': ['alice', 'bob'],
+        'matched_at': Timestamp.now(),
       });
 
       await tester.pumpWidget(
@@ -131,9 +130,8 @@ void main() {
       // Emulator getestet; hier wird nur die reaktive UI verifiziert.
       await firestore.collection('groups').doc(groupId).collection('matches').doc('777').set({
         'movie_id': 777,
-        'member_count': 1,
-        'like_count': 1,
-        'created_at': Timestamp.now(),
+        'member_uids': ['alice'],
+        'matched_at': Timestamp.now(),
       });
       await tester.pumpAndSettle();
 

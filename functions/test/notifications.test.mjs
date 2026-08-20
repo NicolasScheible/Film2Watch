@@ -178,7 +178,7 @@ describe('Push-Notification-Logik', () => {
       await addDevice(alice, `${alice}-tok`);
       await addDevice(bob, `${bob}-tok`);
       const matchRef = db.doc(`groups/${groupId}/matches/550`);
-      await matchRef.set({ movie_id: 550, member_count: 2, like_count: 2, created_at: now() });
+      await matchRef.set({ movie_id: 550, member_uids: [alice, bob].sort(), matched_at: now() });
       const messaging = new FakeMessaging();
 
       await notifyMatch({ firestore: db, messaging, groupId, matchRef });
@@ -193,7 +193,7 @@ describe('Push-Notification-Logik', () => {
       await db.doc(`groups/${groupId}/members/${alice}`).set({ uid: alice, role: 'admin', joined_at: now() });
       await addDevice(alice, `${alice}-tok`);
       const matchRef = db.doc(`groups/${groupId}/matches/551`);
-      await matchRef.set({ movie_id: 551, member_count: 1, like_count: 1, created_at: now() });
+      await matchRef.set({ movie_id: 551, member_uids: [alice], matched_at: now() });
       const messaging = new FakeMessaging();
 
       await notifyMatch({ firestore: db, messaging, groupId, matchRef });
@@ -268,7 +268,7 @@ describe('Push-Notification-Logik', () => {
   describe('claimNotification', () => {
     it('beansprucht ein Dokument nur einmal', async () => {
       const ref = db.doc(`groups/claimtest-${Date.now()}/matches/1`);
-      await ref.set({ movie_id: 1, member_count: 1, like_count: 1, created_at: now() });
+      await ref.set({ movie_id: 1, member_uids: ['alice'], matched_at: now() });
 
       const first = await claimNotification({ firestore: db, ref });
       const second = await claimNotification({ firestore: db, ref });

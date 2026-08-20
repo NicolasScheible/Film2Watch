@@ -21,7 +21,7 @@ class MatchRepository {
   /// neue, von der Cloud Function erzeugte Match-Dokumente.
   Stream<List<MovieMatch>> watchMatches(String groupId) {
     return _matches(groupId)
-        .orderBy('created_at', descending: true)
+        .orderBy('matched_at', descending: true)
         .snapshots()
         .map((snapshot) => snapshot.docs.map(MovieMatch.fromFirestore).toList());
   }

@@ -170,10 +170,13 @@ class _MatchesSection extends ConsumerWidget {
             separatorBuilder: (context, index) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
               final match = matches[index];
-              return MatchCard(
-                match: match,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => MovieDetailScreen(tmdbId: match.movieId)),
+              return SizedBox(
+                width: 140,
+                child: MatchCard(
+                  match: match,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => MovieDetailScreen(tmdbId: match.movieId)),
+                  ),
                 ),
               );
             },
