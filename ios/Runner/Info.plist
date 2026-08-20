@@ -53,6 +53,15 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Erlaubt zuverlässige Zustellung von Remote-/Silent-Push-Notifications
+	     auch außerhalb des Vordergrunds. Erfordert zusätzlich die
+	     "Push Notifications"-Capability + einen APNs-Auth-Key in Apple
+	     Developer/Firebase Console (siehe README, "Offene externe
+	     Konfiguration" - hier nicht erfindbar). -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

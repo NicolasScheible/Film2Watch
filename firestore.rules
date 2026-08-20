@@ -38,6 +38,33 @@ service cloud.firestore {
         && request.resource.data.friend_code == resource.data.friend_code
         && request.resource.data.created_at == resource.data.created_at;
       allow delete: if false;
+
+      // FCM-Geräte-Tokens für Push-Notifications. Dokument-ID ist
+      // deterministisch der Token selbst - verhindert doppelte Geräte-
+      // Einträge strukturell und macht Token-Refresh zu einem einfachen
+      // Anlegen-des-neuen/Löschen-des-alten-Dokuments. Ausschließlich der
+      // Owner darf seine eigenen Geräte lesen/verwalten - Tokens sind
+      // sensible Infrastrukturdaten. Cloud Functions verwenden das
+      // Admin-SDK und sind von diesen Rules nicht betroffen.
+      match /devices/{deviceId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() && request.auth.uid == userId
+          && deviceId == request.resource.data.token
+          && request.resource.data.token is string
+          && request.resource.data.token.size() > 0
+          && request.resource.data.platform in ['android', 'ios']
+          && request.resource.data.created_at == request.time
+          && request.resource.data.updated_at == request.time;
+
+        allow update: if isSignedIn() && request.auth.uid == userId
+          && request.resource.data.token == resource.data.token
+          && request.resource.data.platform in ['android', 'ios']
+          && request.resource.data.created_at == resource.data.created_at
+          && request.resource.data.updated_at == request.time;
+
+        allow delete: if isSignedIn() && request.auth.uid == userId;
+      }
     }
 
     // Freundescode-Eindeutigkeits-Lookup (code -> uid). Jeder authentifizierte

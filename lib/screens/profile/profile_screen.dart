@@ -9,6 +9,7 @@ import '../../components/friends/user_avatar.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/friend_action_controller.dart';
 import '../../providers/friend_provider.dart';
+import '../../providers/notification_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/friend_error_translator.dart';
 import 'add_friend_screen.dart';
@@ -97,7 +98,7 @@ class ProfileScreen extends ConsumerWidget {
               const SizedBox(height: 12),
               PrimaryButton(
                 label: 'Ausloggen',
-                onPressed: () => ref.read(authServiceProvider).signOut(),
+                onPressed: () => _signOut(ref, appUser.uid),
               ),
             ],
           );
@@ -109,6 +110,15 @@ class ProfileScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Meldet zuerst das eigene FCM-Gerät ab (nur das eigene - nie fremde
+/// Geräte), bevor tatsächlich ausgeloggt wird: nach dem Logout ist der User
+/// nicht mehr authentifiziert, die Firestore Rules würden das Entfernen des
+/// eigenen Device-Dokuments dann nicht mehr erlauben.
+Future<void> _signOut(WidgetRef ref, String uid) async {
+  await ref.read(pushServiceProvider).unregisterCurrentDevice(uid).catchError((_) {});
+  await ref.read(authServiceProvider).signOut();
 }
 
 class _FriendCodeCard extends StatelessWidget {

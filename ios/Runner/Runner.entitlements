@@ -6,5 +6,12 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<!-- "development" für Debug-/TestFlight-Builds via Xcode. Vor einem
+	     App-Store-Release muss dieser Wert auf "production" geändert werden
+	     (in Xcode über die "Push Notifications"-Capability, oder manuell hier).
+	     Die eigentliche APNs-Auth-Key-Registrierung in Apple Developer +
+	     Firebase Console bleibt unabhängig davon offen (siehe README). -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>

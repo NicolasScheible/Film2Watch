@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/auth_provider.dart';
+import '../providers/notification_provider.dart';
 import '../theme/app_theme.dart';
 import 'app_shell.dart';
 import 'auth/auth_screen.dart';
@@ -39,6 +40,11 @@ class _AuthenticatedGate extends ConsumerWidget {
         if (appUser == null || appUser.name.trim().isEmpty) {
           return const CompleteProfileScreen();
         }
+        // Fire-and-forget: `FutureProvider.family` cached pro uid, löst also
+        // pro Login-Session genau einmal Permission-Anfrage/Registrierung
+        // aus, nicht bei jedem Rebuild. Ein Fehlschlag (z. B. Permission
+        // abgelehnt) blockiert die App nicht.
+        ref.watch(pushInitializationProvider(appUser.uid));
         return const AppShell();
       },
       loading: () => const _SplashScreen(),

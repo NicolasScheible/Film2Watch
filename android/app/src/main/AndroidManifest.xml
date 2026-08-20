@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Ab Android 13 (API 33) zur Laufzeit erforderlich, damit
+         FirebaseMessaging.requestPermission() eine echte System-Abfrage
+         auslösen kann - ohne diesen Eintrag würde die Runtime-Anfrage
+         wirkungslos bleiben. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="film2watch"
         android:name="${applicationName}"

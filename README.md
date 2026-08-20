@@ -4,10 +4,10 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Gruppenchat**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Swipe- und Match-System aus Schritt 3/3.1/4/5/6/7 unverändert, jetzt inkl. echtem Gruppenchat in Echtzeit über Firestore.
+Aktueller Schritt: **Push-Notifications**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Swipe-, Match- und Chat-System aus Schritt 3/3.1/4/5/6/7/8 unverändert, jetzt inkl. echter Push-Notifications über Firebase Cloud Messaging für Freundschaftsanfragen, Gruppeneinladungen, Matches und Chat-Nachrichten.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Filmabend-/Terminplanung, Push-Benachrichtigungen, Werbung, Premium.
+Filmabend-/Terminplanung, Werbung, Premium.
 
 ## Tech-Stack
 
@@ -16,9 +16,9 @@ Filmabend-/Terminplanung, Push-Benachrichtigungen, Werbung, Premium.
 - **Backend:** Firebase (Projekt `film2watch-3385c`)
   - Firebase Core – initialisiert
   - Firebase Authentication – **produktiv**: E-Mail/Passwort (Login, Registrierung, Passwort-Reset). Google- und Apple-Sign-In sind echt implementiert, benötigen aber noch externe Konfiguration (siehe „Offene externe Konfiguration" unten)
-  - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen, Gruppen-Swipes, Gruppen-Matches, Gruppenchat-Nachrichten (siehe „Datenmodell" unten)
-  - Cloud Functions – **produktiv**: eine Firestore-getriggerte Function (`onSwipeWritten`) erkennt Matches serverseitig, siehe „Match-Funktion" unten
-  - Firebase Cloud Messaging – als Dependency eingerichtet, noch keine Push-Logik
+  - Cloud Firestore – **produktiv**: User-Profile, öffentliche Profile, Freundschaften, Gruppen, Gruppenmitglieder, Gruppeneinladungen, Gruppen-Swipes, Gruppen-Matches, Gruppenchat-Nachrichten, FCM-Geräte-Tokens (siehe „Datenmodell" unten)
+  - Cloud Functions – **produktiv**: `onSwipeWritten` erkennt Matches serverseitig (siehe „Match-Funktion"); vier weitere Functions versenden Push-Notifications (siehe „Push-Notifications" unten)
+  - Firebase Cloud Messaging – **produktiv**: Freundschaftsanfragen, Gruppeneinladungen, Matches, Chat-Nachrichten (siehe „Push-Notifications" unten)
   - Firebase Storage – **produktiv**: Profilbild- und Gruppenbild-Upload/-Löschen
 - **Filmdaten:** TMDB API (`https://api.themoviedb.org/3`) – **produktiv**: Discover, Suche, Details, Watch-Provider (siehe „TMDB-Integration" unten). Kein eigener Filmdaten-Cache in Firestore, TMDB bleibt alleinige Quelle.
 - **Plattformen:** Android (`com.film2watch`), iOS (`film2watch`)
@@ -54,20 +54,23 @@ lib/
     movies/                Filmkarte, zieh-/wischbare Swipe-Karte (`swipe_card.dart`),
                            Match-Karte (`match_card.dart`)
     chat/                  Chat-Bubble (`message_bubble.dart`)
-  services/            Auth-, Friend-, Group-, Storage-, Tmdb-, TmdbImage-, Swipe- und Chat-Service
-  repositories/        Firebase- und TMDB-Zugriffsschicht (inkl. Swipe-, Match- und Chat-Repository)
+  services/            Auth-, Friend-, Group-, Storage-, Tmdb-, TmdbImage-, Swipe- und Chat-Service,
+                         PushService + PushMessagingClient/LocalNotificationDisplay (FCM-Anbindung)
+  repositories/        Firebase- und TMDB-Zugriffsschicht (inkl. Swipe-, Match-, Chat- und
+                         Device-Repository)
   models/               User-, PublicProfile-, FriendRequest-, Group-, GroupMember-,
                          GroupInvitation-, Movie-, MoviePage-, WatchProviderOption-,
-                         MovieSwipe-, MovieMatch-, ChatMessage-Modelle
+                         MovieSwipe-, MovieMatch-, ChatMessage-, DeviceToken-Modelle
   providers/            Riverpod-Provider (Auth-/Freundes-/Gruppen-/Profilbild-/TMDB-/Swipe-/
-                         Match-/Chat-State, Formular-Controller)
+                         Match-/Chat-/Notification-State, Formular-Controller)
+  navigation/            Globaler Navigator-Key + Deep-Link-Navigation für Notification-Taps
   theme/                Dark-Theme, Farben
-  utils/                 Validierung, Fehlerübersetzung, TMDB-Konfiguration
+  utils/                 Validierung, Fehlerübersetzung, TMDB-Konfiguration, Notification-Payload
 firestore.rules         Security Rules für alle Firestore-Collections
 firestore.indexes.json  Collection-Group-Index für „meine Gruppen"
 storage.rules           Security Rules für Firebase Storage (Profil-/Gruppenbilder)
 firestore-tests/        Node-basierte Security-Rules-Tests gegen den echten Firestore-/Storage-Emulator
-functions/               Cloud Functions (serverseitige Match-Erkennung, siehe „Match-Funktion")
+functions/               Cloud Functions (Match-Erkennung + Push-Notification-Versand)
 ```
 
 Architektur-Fluss: **Screens → Providers → Repositories/Services**
@@ -296,6 +299,115 @@ Entwicklungsschritt.
   Filmabend-/Terminplanung, RSVP, Watch Party. Keine neue Cloud Function – normale
   Chat-Nachrichten kommen ohne serverseitige Logik aus, Firestore Rules reichen aus.
 
+## Datenmodell (FCM-Geräte-Tokens)
+
+| Collection | Zweck | Zugriff |
+|---|---|---|
+| `users/{uid}/devices/{token}` | Ein FCM-Gerät des Users (`token, platform, created_at, updated_at`) | ausschließlich der Owner (read/create/update/delete) |
+
+Ein User kann mehrere Geräte haben – deshalb kein einzelnes `users/{uid}.fcm_token`-Feld, sondern
+eine eigene Subcollection. Dokument-ID ist deterministisch der Token selbst: ein Gerät kann so
+strukturell nie doppelt registriert werden, und ein Token-Refresh ist einfach „neues Dokument für
+den neuen Token anlegen, altes Dokument entfernen" statt eines fehleranfälligen In-Place-Updates
+des Token-Werts. `created_at`/`updated_at` sind serverseitige Timestamps
+(`FieldValue.serverTimestamp()`), von der Security Rule über `request.time` erzwungen.
+
+## Push-Notifications
+
+- **Architektur:** Client initialisiert FCM nur für sich selbst – Permission anfragen, eigenes
+  Gerät registrieren, eigenes Token aktualisieren, lokale Anzeige im Vordergrund konfigurieren.
+  Das tatsächliche Versenden an *andere* Nutzer passiert ausschließlich serverseitig über vier
+  Cloud Functions (`functions/notify*.js`), niemals aus dem Flutter-Client heraus.
+- **Client-Flow:** `PushService` (orchestriert FCM: Permission, Token-Registrierung/-Refresh,
+  Tap-Handling) → `DeviceRepository` (Firestore-Zugriff auf `users/{uid}/devices`). FCM selbst wird
+  über zwei dünne Abstraktionen angebunden – `PushMessagingClient` (kapselt `FirebaseMessaging`
+  inkl. der beiden statischen Streams `onMessage`/`onMessageOpenedApp`) und
+  `LocalNotificationDisplay` (kapselt `flutter_local_notifications`) – da es kein offizielles
+  Mock-Paket für `firebase_messaging` gibt; das macht `PushService` trotzdem vollständig mit Fakes
+  testbar, analog zu `TmdbService`/`http.Client`.
+- **Vordergrund-Anzeige:** `flutter_local_notifications` ist eine reine Anzeige-Schicht, kein
+  zweites Push-System. Es wird bewusst kein `setForegroundNotificationPresentationOptions(alert:
+  true)` gesetzt – dadurch zeigt iOS Vordergrund-Notifications nicht selbst an, die Anzeige läuft
+  ausschließlich über den eigenen `onMessage`-Listener. Es gibt also nie zwei Anzeige-Pfade
+  gleichzeitig.
+- **Ereignisse (alle serverseitig, Firestore-Trigger auf bereits bestehenden Pfaden):**
+  - `friend_requests/{requestId}` (`onCreate`) → Empfänger (`toUid`) bekommt „Neue
+    Freundschaftsanfrage" + Name des Absenders. Der Absender bekommt nichts.
+  - `group_invitations/{invitationId}` (`onCreate`) → die eingeladene Person (`inviteeUid`)
+    bekommt „Neue Gruppeneinladung" + Gruppenname. Sonst niemand.
+  - `groups/{groupId}/matches/{matchId}` (`onCreate`) → alle aktuellen Mitglieder der Gruppe
+    bekommen „Neuer Match!" + Gruppenname. Es gibt keinen einzelnen „Ersteller", der ausgeschlossen
+    werden müsste – ein Match ist ein gemeinsames, serverseitig ermitteltes Ergebnis; der
+    Duplikat-Schutz (siehe unten) stellt sicher, dass dafür in jedem Fall nur eine
+    Notification-Runde verschickt wird. **Bewusst der Gruppenname statt des Filmtitels:**
+    Filmdaten kommen ausschließlich von TMDB (clientseitig) – Cloud Functions haben keinen
+    TMDB-Zugriff und sollen auch keinen bekommen, um TMDB nicht zu duplizieren. Der Filmtitel
+    erscheint nach dem Antippen ganz normal in der bestehenden Match-/Filmdetail-Anzeige.
+  - `groups/{groupId}/messages/{messageId}` (`onCreate`) → alle Mitglieder außer dem Absender
+    bekommen „{Name} in {Gruppe}" + eine gekürzte Vorschau (max. 80 Zeichen) der Nachricht. Der
+    Absender bekommt nie eine eigene Notification.
+- **Duplikat-Schutz:** Cloud Functions garantieren nur „at-least-once"-Zustellung – derselbe
+  Trigger kann in seltenen Fällen erneut ausgeführt werden. `claimNotification()`
+  (`functions/notifications.js`) beansprucht das Senderecht atomar über eine Firestore-Transaktion
+  (prüft/setzt ein `notified_at`-Feld auf dem jeweiligen Quelldokument) – nur der erste
+  erfolgreiche Aufruf sendet tatsächlich, jeder weitere bricht sauber ab. Kein naives „ein Trigger
+  = garantiert eine Notification".
+- **Token-Cleanup:** `sendToUsers()` inspiziert die FCM-Antwort pro Token; meldet FCM
+  `registration-token-not-registered`/`invalid-registration-token`, wird das betroffene
+  Device-Dokument gelöscht – kein endloses erneutes Zustellen an tote Tokens.
+- **Fehlerbehandlung:** Ein fehlgeschlagener Notification-Versand wirft nie in den aufrufenden
+  Trigger hinein und beeinflusst nie den ursprünglichen Firestore-Hauptvorgang (Anfrage/Einladung/
+  Match/Nachricht) – der ist zu diesem Zeitpunkt bereits abgeschlossen.
+- **Payload/Privacy:** `data`-Payload enthält nur `type` und ggf. `group_id` – keine vollständigen
+  Nachrichten, keine privaten Profildaten, keine internen Firebase-IDs über das Nötige hinaus. Die
+  sichtbare Chat-Vorschau ist bewusst gekürzt. Keine Device-Tokens oder Secrets werden geloggt.
+- **Deep Links:** `navigateForNotification()` (`lib/navigation/notification_navigator.dart`)
+  nutzt einen globalen `navigatorKey` auf dem bestehenden `MaterialApp` – Freundschaftsanfrage →
+  `FriendRequestsScreen`, Gruppeneinladung → `GroupInvitationsScreen`, Match → `GroupDetailScreen`
+  (zeigt die Match-Liste), Chat → `GroupChatScreen`. Derselbe Code-Pfad wird sowohl vom
+  FCM-Tap-Handler (Hintergrund/Terminated) als auch vom Tap auf die lokale
+  Vordergrund-Notification aufgerufen – keine doppelte Navigations-Logik, keine neue parallele
+  Navigations-Architektur.
+- **App-Zustände:** Foreground über `onMessage` + lokale Anzeige; Background/Terminated zeigt das
+  Betriebssystem die Notification anhand des `notification`-Blocks automatisch an, ein Tap wird
+  über `onMessageOpenedApp` (App im Hintergrund) bzw. `getInitialMessage()` (App war beendet)
+  verarbeitet.
+- **Logout:** Meldet zuerst das eigene Gerät ab (`PushService.unregisterCurrentDevice`), bevor
+  tatsächlich ausgeloggt wird – danach ist der User nicht mehr authentifiziert, die Security Rules
+  würden das Entfernen des eigenen Device-Dokuments dann nicht mehr erlauben. Betrifft
+  ausschließlich das eigene Gerät, nie fremde.
+- **Keine Notification-Einstellungsseite:** In diesem Schritt nicht vorgesehen (keine
+  übergeordnete Spezifikation dafür) – keine künstliche Preference-Architektur erfunden.
+- **Nicht Teil dieses Schritts:** Internes Notification-Center/Inbox in der App (FCM-Push ist
+  nicht dasselbe wie ein internes Notification-Center).
+
+### Android
+
+- `POST_NOTIFICATIONS`-Permission im Manifest ergänzt (ab Android 13/API 33 zur Laufzeit
+  erforderlich, damit `requestPermission()` eine echte System-Abfrage auslösen kann).
+- Keine weiteren Manifest-Änderungen nötig – `firebase_messaging`/`flutter_local_notifications`
+  registrieren ihre Services/Receiver automatisch über das Gradle-Plugin.
+
+### iOS / APNs
+
+**Bereits vorhanden:**
+- `firebase_messaging`-Dependency, Firebase-Projekt `film2watch-3385c` (unverändert, keine neue
+  Firebase-App registriert), Bundle-ID `film2watch` (unverändert).
+- `UIBackgroundModes` mit `remote-notification` in `Info.plist` ergänzt (zuverlässige
+  Hintergrund-Zustellung).
+- `aps-environment: development` in `Runner.entitlements` ergänzt (Debug-/TestFlight-Builds; vor
+  einem App-Store-Release muss dieser Wert auf `production` geändert werden).
+
+**Fehlt – echte externe Konfiguration, hier nicht herstellbar (kein Vortäuschen):**
+- Die **„Push Notifications"-Capability** ist im Xcode-Projekt selbst noch nicht über die
+  Apple-Developer-Provisioning-Profile aktiviert (das entitlement-Vorbereiten im Repo ersetzt das
+  nicht – dafür muss jemand mit Zugriff auf das Apple Developer Portal die Capability für die
+  App-ID `film2watch` aktivieren und ein passendes Provisioning-Profile ziehen).
+- Ein **APNs-Auth-Key** (`.p8`, Apple Developer → Certificates, Identifiers & Profiles → Keys) muss
+  erzeugt und in der Firebase Console (Projekteinstellungen → Cloud Messaging → Apple-App-
+  Konfiguration) hinterlegt werden. Ohne diesen Key kann Firebase keine Pushes an iOS-Geräte
+  zustellen – kein Zertifikat/Key wurde erfunden oder committet.
+
 ## Profilbild
 
 - **Auswahl:** Kamera oder Galerie über `image_picker`; Komprimierung/Verkleinerung bereits beim
@@ -397,11 +509,18 @@ hinterlegt, sondern per `--dart-define` injiziert – siehe „TMDB-Integration"
 6. **TMDB API Read Access Token** – wird für alle echten TMDB-Requests benötigt (siehe
    „TMDB-Integration" oben). Ohne ihn zeigt die TMDB-Testseite den Hinweis „TMDB API Key wird
    benötigt.", es werden keine Fake-Daten angezeigt.
-7. **Cloud Functions deployen** – `functions/` (Schritt 7, serverseitige Match-Erkennung) muss
-   über `firebase deploy --only functions` veröffentlicht werden. Das Firebase-Projekt muss dafür
-   auf den **Blaze-Tarif (Pay-as-you-go)** umgestellt sein – Cloud Functions laufen nicht auf dem
-   kostenlosen Spark-Tarif. Ohne deployte Function entstehen echte Swipes weiterhin normal, aber
-   es werden **keine** Match-Dokumente erzeugt (die Match-Liste bleibt leer, kein Fake-Fallback).
+7. **Cloud Functions deployen** – `functions/` (serverseitige Match-Erkennung + Push-Notification-
+   Versand) muss über `firebase deploy --only functions` veröffentlicht werden. Das Firebase-
+   Projekt muss dafür auf den **Blaze-Tarif (Pay-as-you-go)** umgestellt sein – Cloud Functions
+   laufen nicht auf dem kostenlosen Spark-Tarif. Ohne deployte Functions entstehen echte Swipes/
+   Nachrichten/Anfragen weiterhin normal, aber es werden **keine** Match-Dokumente und **keine**
+   Push-Notifications erzeugt (kein Fake-Fallback).
+8. **APNs für iOS** (Schritt 9, siehe „Push-Notifications" → „iOS / APNs" oben für den vollen
+   Status): „Push Notifications"-Capability im Apple Developer Portal für die App-ID `film2watch`
+   aktivieren + ein passendes Provisioning-Profile ziehen, sowie einen APNs-Auth-Key erzeugen und
+   in der Firebase Console (Cloud Messaging → Apple-App-Konfiguration) hinterlegen. Ohne diese
+   beiden Schritte erhalten iOS-Geräte keine Push-Notifications; Android ist davon unabhängig und
+   funktioniert bereits vollständig über die Firebase-Projektkonfiguration.
 
 Bis diese Schritte durchgeführt sind, zeigen Google-/Apple-Login in der App einen echten,
 verständlichen Fehler statt eines funktionierenden Logins (kein Mock).
@@ -416,6 +535,14 @@ Die Match-*Erkennungslogik* (`functions/matchEngine.js`) wird separat als echter
 gegen den Firebase Functions Emulator + Firestore Emulator getestet (`functions/test/`, `npm test`
 in `functions/`) – Swipes werden real in Firestore geschrieben, der echte Cloud-Function-Trigger
 läuft mit, und es wird auf das entstehende (oder ausbleibende) Match-Dokument gewartet.
+
+Die Push-Notification-*Logik* (`functions/notifications.js`, `functions/notify*.js`) wird gegen
+den echten Firestore-Emulator getestet, aber mit einem injizierten Fake-Messaging-Client statt
+echtem FCM-Versand: es gibt keinen „Firebase Cloud Messaging Emulator", und ohne echte
+Gerätetokens/Google-Cloud-Credentials in einer CI-/Sandbox-Umgebung wäre ein echter Versand
+ohnehin nicht sinnvoll testbar. Geprüft werden die tatsächliche Empfänger-Ermittlung, der
+Ausschluss des Absenders, der Duplikat-Schutz und das Entfernen ungültiger Tokens – also exakt die
+Logik, die bei einem echten Versand zählt.
 
 ## Entwicklung
 
