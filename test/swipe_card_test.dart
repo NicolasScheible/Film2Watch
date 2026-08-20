@@ -69,6 +69,59 @@ void main() {
       expect(result, SwipeCardDirection.dislike);
     });
 
+    testWidgets('Wischen nach oben löst Watchlist aus (echte Drag-Geste)', (tester) async {
+      SwipeCardDirection? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SwipeCard(movie: _movie(), onSwiped: (direction) => result = direction),
+          ),
+        ),
+      );
+
+      await tester.drag(find.byType(SwipeCard), const Offset(0, -300));
+      await tester.pumpAndSettle();
+
+      expect(result, SwipeCardDirection.watchlist);
+    });
+
+    testWidgets('triggerWatchlist() über den GlobalKey löst dieselbe Aktion wie die Geste aus', (tester) async {
+      SwipeCardDirection? result;
+      final key = GlobalKey<SwipeCardState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SwipeCard(key: key, movie: _movie(), onSwiped: (direction) => result = direction),
+          ),
+        ),
+      );
+
+      key.currentState!.triggerWatchlist();
+      await tester.pumpAndSettle();
+
+      expect(result, SwipeCardDirection.watchlist);
+    });
+
+    testWidgets('deaktivierte Karte reagiert nicht auf Watchlist-Geste', (tester) async {
+      SwipeCardDirection? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SwipeCard(
+              movie: _movie(),
+              isEnabled: false,
+              onSwiped: (direction) => result = direction,
+            ),
+          ),
+        ),
+      );
+
+      await tester.drag(find.byType(SwipeCard), const Offset(0, -300));
+      await tester.pumpAndSettle();
+
+      expect(result, isNull);
+    });
+
     testWidgets('ein kurzer Drag unterhalb der Schwelle löst nichts aus', (tester) async {
       SwipeCardDirection? result;
       await tester.pumpWidget(

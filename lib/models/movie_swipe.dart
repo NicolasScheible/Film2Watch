@@ -3,7 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 enum SwipeDecision {
   like,
   dislike,
-  skip;
+  skip,
+  watchlist;
 
   static SwipeDecision fromString(String value) {
     return SwipeDecision.values.firstWhere(

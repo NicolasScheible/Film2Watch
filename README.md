@@ -4,14 +4,18 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Skip-Swipe**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Match-, Chat-
-und Push-System aus den vorherigen Schritten unverändert. Das Swipe-System hat jetzt eine dritte,
-rein persönliche Entscheidung neben Like/Dislike: **Skip** („Vielleicht später", Wischen nach
-unten) – blendet einen Film nur für den swipenden User aus, ohne die Match-Erkennung oder die
-Swipes anderer Mitglieder zu beeinflussen (siehe „Swipe-Funktion" unten).
+Aktueller Schritt: **Watchlist-Swipe**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Match-,
+Chat- und Push-System aus den vorherigen Schritten unverändert. Das Swipe-System hat jetzt alle vier
+in der Produktspezifikation genannten Richtungen: Like (rechts), Dislike (links), Skip (unten) und
+neu **Watchlist** (oben, „Vielleicht später") – beide „Vielleicht später"-Entscheidungen (Skip und
+Watchlist) sind rein persönlich, blenden den Film nur für den swipenden User aus und beeinflussen
+nie die Match-Erkennung oder die Swipes anderer Mitglieder (siehe „Swipe-Funktion" unten). Eine
+separate Watchlist-**Ansicht** (Liste der vorgemerkten Filme) ist bewusst noch nicht Teil dieses
+Schritts – die Produktspezifikation fordert für die Watchlist an dieser Stelle nur die Swipe-Erfassung,
+keine konkrete Anzeige-UI.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Filmabend-/Terminplanung, Werbung, Premium.
+Watchlist-Ansicht, Super Swipe/Premium, Filmabend-/Terminplanung, Werbung.
 
 ## Tech-Stack
 
@@ -141,11 +145,11 @@ tatsächliches Gruppenbild in der App erscheinen.
 
 | Collection | Zweck | Zugriff |
 |---|---|---|
-| `groups/{groupId}/swipes/{uid}_{movieId}` | Like/Dislike/Skip-Entscheidung eines Mitglieds zu einem Film (`uid, movie_id, decision, created_at, updated_at`) | lesbar für alle Mitglieder der Gruppe, schreibbar nur für den eigenen Swipe, kein Löschen |
+| `groups/{groupId}/swipes/{uid}_{movieId}` | Like/Dislike/Skip/Watchlist-Entscheidung eines Mitglieds zu einem Film (`uid, movie_id, decision, created_at, updated_at`) | lesbar für alle Mitglieder der Gruppe, schreibbar nur für den eigenen Swipe, kein Löschen |
 
 Es wird **keine** vollständige TMDB-JSON-Antwort in Firestore gespeichert – nur die
-Entscheidung selbst (`movie_id` + `like`/`dislike`/`skip`). TMDB bleibt für alle Filmdaten (Titel,
-Poster, Genres, ...) die alleinige Quelle.
+Entscheidung selbst (`movie_id` + `like`/`dislike`/`skip`/`watchlist`). TMDB bleibt für alle
+Filmdaten (Titel, Poster, Genres, ...) die alleinige Quelle.
 
 **Deterministische Dokument-ID `{uid}_{movieId}`:** Ein erneutes Bewerten desselben Films durch
 denselben User in derselben Gruppe aktualisiert die bestehende Entscheidung (`update`), statt ein
@@ -174,18 +178,22 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   Seitenabrufe pro Auffüll-Vorgang, um bei ungünstiger Datenlage keine unkontrollierte Schleife
   auszulösen.
 - **Bedienung:** Wischen nach rechts = Like, nach links = Dislike, nach unten = Skip/„Vielleicht
-  später" (mit sichtbarer Richtungsanzeige während des Ziehens, `LIKE`/`NOPE`/`SKIP`); die
-  Like-/Dislike-/Skip-Buttons lösen exakt denselben Code-Pfad wie die jeweilige Geste aus
-  (`SwipeCardState.triggerLike`/`triggerDislike`/`triggerSkip` über einen `GlobalKey`), keine
-  doppelte Business-Logik.
-- **Skip ist rein persönlich:** Ein Skip blendet den Film ausschließlich für den swipenden User aus
-  der eigenen Warteschlange dieser Gruppe aus (`SwipeQueueController`/`SwipeRepository.getSwipedMovieIds`
-  behandelt `like`/`dislike`/`skip` identisch als „bereits bewertet") – andere Mitglieder sehen und
-  bewerten denselben Film unverändert weiter. Ein Skip zählt in der serverseitigen Match-Erkennung
-  (`functions/matchEngine.js`, prüft ausschließlich `decision == 'like'`) nie als Like, kann also
-  selbst nie einen Match auslösen, und blockiert auch keinen zukünftigen Match anderer Mitglieder –
+  später", nach oben = Watchlist/„Vielleicht später" (mit sichtbarer Richtungsanzeige während des
+  Ziehens, `LIKE`/`NOPE`/`SKIP`/`WATCHLIST`, die dominante Zug-Achse entscheidet zwischen
+  horizontal und vertikal); die Like-/Dislike-/Skip-/Watchlist-Buttons lösen exakt denselben
+  Code-Pfad wie die jeweilige Geste aus
+  (`SwipeCardState.triggerLike`/`triggerDislike`/`triggerSkip`/`triggerWatchlist` über einen
+  `GlobalKey`), keine doppelte Business-Logik.
+- **Skip und Watchlist sind rein persönlich:** Beide „Vielleicht später"-Entscheidungen blenden den
+  Film ausschließlich für den swipenden User aus der eigenen Warteschlange dieser Gruppe aus
+  (`SwipeQueueController`/`SwipeRepository.getSwipedMovieIds` behandelt `like`/`dislike`/`skip`/
+  `watchlist` identisch als „bereits bewertet") – andere Mitglieder sehen und bewerten denselben
+  Film unverändert weiter. Beide zählen in der serverseitigen Match-Erkennung
+  (`functions/matchEngine.js`, prüft ausschließlich `decision == 'like'`) nie als Like, können also
+  selbst nie einen Match auslösen, und blockieren auch keinen zukünftigen Match anderer Mitglieder –
   dafür war keine Änderung an der Match-Engine nötig, die bestehende Prüfung war bereits eng genug
-  gefasst.
+  gefasst. Eine gemeinsame Anzeige der Watchlist-Einträge (gruppenweit oder persönlich) ist bewusst
+  noch nicht gebaut – die Produktspezifikation fordert an dieser Stelle nur die Swipe-Erfassung.
 - **Speichern & Fehlerbehandlung:** Die Entscheidung wird erst nach der Wisch-/Tap-Animation
   gespeichert; schlägt das Speichern fehl (kein Internet, Firestore-Fehler, ...), verschwindet die
   Karte **nicht** kommentarlos – ein Fehler wird angezeigt und der User kann es erneut versuchen.

@@ -175,10 +175,11 @@ service cloud.firestore {
         allow delete: if isSignedIn() && (request.auth.uid == memberUid || isGroupAdmin(groupId));
       }
 
-      // Swipe-Entscheidungen (like/dislike/skip) pro Mitglied und Film.
-      // "skip" ("Vielleicht später") ist rein persönlich: er blendet den
-      // Film nur für den schreibenden User aus (SwipeQueueController) und
-      // zählt in der Match-Erkennung (functions/matchEngine.js) nie als
+      // Swipe-Entscheidungen (like/dislike/skip/watchlist) pro Mitglied und
+      // Film. "skip" ("Vielleicht später", runter) und "watchlist"
+      // ("Vielleicht später", hoch) sind beide rein persönlich: sie blenden
+      // den Film nur für den schreibenden User aus (SwipeQueueController)
+      // und zählen in der Match-Erkennung (functions/matchEngine.js) nie als
       // 'like' - technisch identisch zu 'dislike' behandelt, nur mit
       // anderer fachlicher Bedeutung. Dokument-ID ist deterministisch
       // "{uid}_{movieId}" - ein erneutes Bewerten desselben Films
@@ -192,14 +193,14 @@ service cloud.firestore {
         allow create: if isGroupMember(groupId)
           && request.auth.uid == request.resource.data.uid
           && swipeId == request.resource.data.uid + '_' + string(request.resource.data.movie_id)
-          && request.resource.data.decision in ['like', 'dislike', 'skip'];
+          && request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist'];
 
         allow update: if isGroupMember(groupId)
           && request.auth.uid == resource.data.uid
           && request.resource.data.uid == resource.data.uid
           && request.resource.data.movie_id == resource.data.movie_id
           && request.resource.data.created_at == resource.data.created_at
-          && request.resource.data.decision in ['like', 'dislike', 'skip'];
+          && request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist'];
 
         allow delete: if false;
       }

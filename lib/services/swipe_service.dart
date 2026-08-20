@@ -29,6 +29,15 @@ class SwipeService {
     return _swipe(groupId: groupId, uid: uid, movieId: movieId, decision: SwipeDecision.skip);
   }
 
+  /// Setzt einen Film für [uid] persönlich auf "Vielleicht später"
+  /// (Watchlist). Wie Skip weder Like noch Dislike - beeinflusst nie die
+  /// Match-Erkennung (`functions/matchEngine.js` prüft ausschließlich
+  /// `decision == 'like'`) und nie die Swipes anderer Mitglieder. Blendet den
+  /// Film ebenfalls dauerhaft aus der eigenen Warteschlange dieser Gruppe aus.
+  Future<void> watchlistMovie({required String groupId, required String uid, required int movieId}) {
+    return _swipe(groupId: groupId, uid: uid, movieId: movieId, decision: SwipeDecision.watchlist);
+  }
+
   Future<void> _swipe({
     required String groupId,
     required String uid,

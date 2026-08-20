@@ -164,5 +164,36 @@ void main() {
       expect(snapshot.docs, hasLength(1));
       expect(snapshot.docs.first.data()['decision'], 'skip');
     });
+
+    test('Watchlist landet im Erfolg und speichert decision == watchlist', () async {
+      final notifier = container.read(swipeActionControllerProvider(groupId).notifier);
+
+      await notifier.watchlist(6);
+
+      expect(container.read(swipeActionControllerProvider(groupId)).hasError, isFalse);
+      final swipe = await container
+          .read(swipeRepositoryProvider)
+          .getSwipe(groupId: groupId, uid: 'alice', movieId: 6);
+      expect(swipe, isNotNull);
+      expect(swipe!.decision, SwipeDecision.watchlist);
+    });
+
+    test('mehrfaches schnelles Antippen des Watchlist-Buttons (Double-Submit) erzeugt nur einen einzigen Swipe',
+        () async {
+      final notifier = container.read(swipeActionControllerProvider(groupId).notifier);
+
+      final first = notifier.watchlist(7);
+      final second = notifier.watchlist(7);
+      await Future.wait([first, second]);
+
+      final snapshot = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .where('movie_id', isEqualTo: 7)
+          .get();
+      expect(snapshot.docs, hasLength(1));
+      expect(snapshot.docs.first.data()['decision'], 'watchlist');
+    });
   });
 }

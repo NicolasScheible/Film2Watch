@@ -5,9 +5,9 @@ import 'auth_provider.dart';
 import 'swipe_provider.dart';
 import 'swipe_queue_controller.dart';
 
-/// Speichert Like/Dislike/Skip für den aktuell angezeigten Film. Verhindert
-/// per [AsyncValue.isLoading] mehrfaches Auslösen durch schnelles Antippen/
-/// mehrfaches Swipen, während ein Speichervorgang noch läuft.
+/// Speichert Like/Dislike/Skip/Watchlist für den aktuell angezeigten Film.
+/// Verhindert per [AsyncValue.isLoading] mehrfaches Auslösen durch schnelles
+/// Antippen/mehrfaches Swipen, während ein Speichervorgang noch läuft.
 class SwipeActionController extends AsyncNotifier<void> {
   SwipeActionController(this.groupId);
 
@@ -25,6 +25,11 @@ class SwipeActionController extends AsyncNotifier<void> {
   /// unverändert weiter, und es entsteht dadurch nie ein Match.
   Future<void> skip(int movieId) => _swipe(movieId, decision: SwipeDecision.skip);
 
+  /// Setzt den Film persönlich auf "Vielleicht später" (Watchlist) - wie
+  /// [skip] rein persönlich, kein Einfluss auf andere Mitglieder oder die
+  /// Match-Erkennung.
+  Future<void> watchlist(int movieId) => _swipe(movieId, decision: SwipeDecision.watchlist);
+
   Future<void> _swipe(int movieId, {required SwipeDecision decision}) async {
     final uid = ref.read(authStateChangesProvider).value?.uid;
     if (uid == null || state.isLoading) return;
@@ -39,6 +44,8 @@ class SwipeActionController extends AsyncNotifier<void> {
           await service.dislikeMovie(groupId: groupId, uid: uid, movieId: movieId);
         case SwipeDecision.skip:
           await service.skipMovie(groupId: groupId, uid: uid, movieId: movieId);
+        case SwipeDecision.watchlist:
+          await service.watchlistMovie(groupId: groupId, uid: uid, movieId: movieId);
       }
       await ref
           .read(swipeQueueControllerProvider(groupId).notifier)

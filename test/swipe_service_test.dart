@@ -125,6 +125,68 @@ void main() {
       );
     });
 
+    test('Watchlist speichert eine Entscheidung mit decision == watchlist', () async {
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'alice', movieId: 562);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 562);
+      expect(swipe, isNotNull);
+      expect(swipe!.decision, SwipeDecision.watchlist);
+    });
+
+    test('Watchlist ist userbezogen - ein zweites Mitglied kann denselben Film unabhängig bewerten', () async {
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'alice', movieId: 563);
+      await swipeService.likeMovie(groupId: groupId, uid: 'bob', movieId: 563);
+
+      final aliceSwipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 563);
+      final bobSwipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'bob', movieId: 563);
+      expect(aliceSwipe!.decision, SwipeDecision.watchlist);
+      expect(bobSwipe!.decision, SwipeDecision.like);
+    });
+
+    test('Film auf der Watchlist wird von getSwipedMovieIds erkannt (wird aus der Warteschlange ausgeblendet)',
+        () async {
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'bob', movieId: 564);
+
+      final swipedIds = await swipeRepository.getSwipedMovieIds(groupId: groupId, uid: 'bob');
+      expect(swipedIds, contains(564));
+    });
+
+    test('doppelte Watchlist-Aktion erzeugt kein zweites Dokument (Idempotenz)', () async {
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'alice', movieId: 565);
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'alice', movieId: 565);
+
+      final snapshot = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .where('movie_id', isEqualTo: 565)
+          .get();
+      expect(snapshot.docs, hasLength(1));
+    });
+
+    test('Like -> Watchlist aktualisiert die bestehende Entscheidung statt ein neues Dokument anzulegen', () async {
+      await swipeService.likeMovie(groupId: groupId, uid: 'alice', movieId: 566);
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'alice', movieId: 566);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 566);
+      expect(swipe!.decision, SwipeDecision.watchlist);
+
+      final snapshot = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .where('movie_id', isEqualTo: 566)
+          .get();
+      expect(snapshot.docs, hasLength(1));
+    });
+
+    test('Watchlist durch ein Nicht-Mitglied schlägt fehl', () async {
+      expect(
+        () => swipeService.watchlistMovie(groupId: groupId, uid: 'carol', movieId: 567),
+        throwsA(isA<GroupActionException>()),
+      );
+    });
+
     test('bereits bewerteter Film wird erkannt', () async {
       await swipeService.likeMovie(groupId: groupId, uid: 'bob', movieId: 552);
 

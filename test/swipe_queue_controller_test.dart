@@ -121,12 +121,44 @@ void main() {
       expect(queue.map((m) => m.tmdbId), isNot(contains(1)));
     });
 
+    test('Filme auf der Watchlist werden ebenfalls aus der Warteschlange ausgeblendet', () async {
+      final firestore = FakeFirebaseFirestore();
+      final now = DateTime.now();
+      await firestore
+          .collection('groups')
+          .doc('g1')
+          .collection('swipes')
+          .doc('alice_1')
+          .set(MovieSwipe(
+            uid: 'alice',
+            movieId: 1,
+            decision: SwipeDecision.watchlist,
+            createdAt: now,
+            updatedAt: now,
+          ).toFirestore());
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.map((m) => m.tmdbId), containsAll([2, 3]));
+      expect(queue.map((m) => m.tmdbId), isNot(contains(1)));
+    });
+
     test(
-        'leere Warteschlange ohne Endlosschleife, wenn alle verfügbaren Filme bereits like/dislike/skip bewertet wurden',
+        'leere Warteschlange ohne Endlosschleife, wenn alle verfügbaren Filme bereits like/dislike/skip/watchlist bewertet wurden',
         () async {
       final firestore = FakeFirebaseFirestore();
       final now = DateTime.now();
-      final decisions = {1: SwipeDecision.like, 2: SwipeDecision.dislike, 3: SwipeDecision.skip};
+      final decisions = {
+        1: SwipeDecision.like,
+        2: SwipeDecision.dislike,
+        3: SwipeDecision.skip,
+        4: SwipeDecision.watchlist,
+      };
       for (final entry in decisions.entries) {
         await firestore
             .collection('groups')
@@ -142,7 +174,7 @@ void main() {
             ).toFirestore());
       }
 
-      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3, 4]}, totalPages: 1);
       final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
       addTearDown(container.dispose);
       await container.read(authStateChangesProvider.future);

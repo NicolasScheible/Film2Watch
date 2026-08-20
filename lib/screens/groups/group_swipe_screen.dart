@@ -17,10 +17,11 @@ import '../movies/movie_detail_screen.dart';
 
 /// Echte Gruppen-Swipe-Oberfläche: Filme aus TMDB Discover, gefiltert um
 /// bereits vom aktuellen User bewertete Filme dieser Gruppe. Speichert Like/
-/// Dislike/Skip dauerhaft in Firestore - ein Skip ("Vielleicht später")
-/// blendet den Film nur für diesen User aus, zählt nie als Like oder
-/// Dislike und beeinflusst nie die Match-Erkennung oder die Swipes anderer
-/// Mitglieder. Reagiert live auf neu entstandene Matches
+/// Dislike/Skip/Watchlist dauerhaft in Firestore - Skip und Watchlist
+/// ("Vielleicht später", unten bzw. oben) blenden den Film nur für diesen
+/// User aus, zählen nie als Like oder Dislike und beeinflussen nie die
+/// Match-Erkennung oder die Swipes anderer Mitglieder. Reagiert live auf neu
+/// entstandene Matches
 /// (serverseitig per Cloud Function erkannt, siehe `functions/index.js`) mit
 /// einer "Match! 🍿"-Anzeige. Noch kein Chat.
 class GroupSwipeScreen extends ConsumerStatefulWidget {
@@ -50,6 +51,8 @@ class _GroupSwipeScreenState extends ConsumerState<GroupSwipeScreen> {
         notifier.dislike(movie.tmdbId);
       case SwipeCardDirection.skip:
         notifier.skip(movie.tmdbId);
+      case SwipeCardDirection.watchlist:
+        notifier.watchlist(movie.tmdbId);
     }
   }
 
@@ -132,6 +135,12 @@ class _GroupSwipeScreenState extends ConsumerState<GroupSwipeScreen> {
                         color: Colors.amber,
                         enabled: !isBusy,
                         onPressed: () => _cardKey.currentState?.triggerSkip(),
+                      ),
+                      _SwipeActionButton(
+                        icon: Icons.bookmark_add_outlined,
+                        color: Colors.lightBlueAccent,
+                        enabled: !isBusy,
+                        onPressed: () => _cardKey.currentState?.triggerWatchlist(),
                       ),
                       _SwipeActionButton(
                         icon: Icons.favorite,

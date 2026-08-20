@@ -4,17 +4,17 @@ import '../../models/movie.dart';
 import '../../services/tmdb_image_service.dart';
 import '../../theme/app_theme.dart';
 
-enum SwipeCardDirection { like, dislike, skip }
+enum SwipeCardDirection { like, dislike, skip, watchlist }
 
 /// Eine zieh-/wischbare Filmkarte. Buttons steuern dieselbe Karte über
 /// [SwipeCardState.triggerLike]/[SwipeCardState.triggerDislike]/
-/// [SwipeCardState.triggerSkip] - dieselbe Animation und derselbe
-/// [onSwiped]-Aufruf wie bei einer echten Geste, keine doppelte
-/// Business-Logik. Skip wird durch ein Wischen nach unten ausgelöst (analog
-/// zu Like=rechts/Dislike=links) und blendet den Film laut Produktspezifikation
-/// nur für den aktuellen Nutzer aus - das setzt ausschließlich
-/// [onSwiped] mit [SwipeCardDirection.skip] um, ohne eigene Ausblend-Logik
-/// hier in der Karte.
+/// [SwipeCardState.triggerSkip]/[SwipeCardState.triggerWatchlist] - dieselbe
+/// Animation und derselbe [onSwiped]-Aufruf wie bei einer echten Geste,
+/// keine doppelte Business-Logik. Horizontal: rechts = Like, links =
+/// Dislike. Vertikal: unten = Skip/"Vielleicht später", oben = Watchlist/
+/// "Vielleicht später" - beide blenden den Film laut Produktspezifikation
+/// nur für den aktuellen Nutzer aus, das setzt ausschließlich [onSwiped]
+/// um, ohne eigene Ausblend-Logik hier in der Karte.
 class SwipeCard extends StatefulWidget {
   const SwipeCard({
     super.key,
@@ -66,6 +66,8 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
 
   void triggerSkip() => _fling(SwipeCardDirection.skip);
 
+  void triggerWatchlist() => _fling(SwipeCardDirection.watchlist);
+
   void _fling(SwipeCardDirection direction) {
     if (!widget.isEnabled) return;
     final size = MediaQuery.of(context).size;
@@ -77,6 +79,8 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
         target = Offset(-size.width * 1.2, _dragOffset.dy);
       case SwipeCardDirection.skip:
         target = Offset(_dragOffset.dx, size.height * 1.2);
+      case SwipeCardDirection.watchlist:
+        target = Offset(_dragOffset.dx, -size.height * 1.2);
     }
     _runAnimation(target, onComplete: () => widget.onSwiped(direction));
   }
@@ -107,11 +111,12 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
     if (!widget.isEnabled || !_dragging) return;
     _dragging = false;
     final horizontal = _dragOffset.dx.abs();
-    final verticalDown = _dragOffset.dy > 0 ? _dragOffset.dy : 0.0;
+    final vertical = _dragOffset.dy.abs();
 
-    if (verticalDown > _swipeThreshold && verticalDown >= horizontal) {
-      // Vorwiegend nach unten gezogen - Runter = Skip/"Vielleicht später".
-      _fling(SwipeCardDirection.skip);
+    if (vertical > _swipeThreshold && vertical >= horizontal) {
+      // Vorwiegend vertikal gezogen - Runter = Skip, Hoch = Watchlist
+      // (beide "Vielleicht später", nur die Richtung unterscheidet sie).
+      _fling(_dragOffset.dy > 0 ? SwipeCardDirection.skip : SwipeCardDirection.watchlist);
     } else if (horizontal > _swipeThreshold) {
       _fling(_dragOffset.dx > 0 ? SwipeCardDirection.like : SwipeCardDirection.dislike);
     } else {
@@ -125,6 +130,7 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
     final likeOpacity = (_dragOffset.dx / _swipeThreshold).clamp(0.0, 1.0);
     final dislikeOpacity = (-_dragOffset.dx / _swipeThreshold).clamp(0.0, 1.0);
     final skipOpacity = (_dragOffset.dy / _swipeThreshold).clamp(0.0, 1.0);
+    final watchlistOpacity = (-_dragOffset.dy / _swipeThreshold).clamp(0.0, 1.0);
 
     return GestureDetector(
       onPanStart: _onPanStart,
@@ -153,6 +159,18 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
                 right: 0,
                 child: Center(
                   child: _DirectionBadge(label: 'SKIP', color: Colors.amber, opacity: skipOpacity),
+                ),
+              ),
+              Positioned(
+                top: 28,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: _DirectionBadge(
+                    label: 'WATCHLIST',
+                    color: Colors.lightBlueAccent,
+                    opacity: watchlistOpacity,
+                  ),
                 ),
               ),
             ],

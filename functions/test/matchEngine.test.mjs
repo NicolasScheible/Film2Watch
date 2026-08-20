@@ -270,4 +270,48 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
     const stillNoMatch = await matchRef('g15', 615).get();
     assert.equal(stillNoMatch.exists, false);
   });
+
+  it('16. Watchlist + Watchlist erzeugt keinen Match', async () => {
+    await createGroup('g16', ['alice', 'bob']);
+    await setSwipe('g16', 'alice', 617, 'watchlist');
+    await setSwipe('g16', 'bob', 617, 'watchlist');
+
+    await assertNoMatchAfterSettling('g16', 617);
+  });
+
+  it('17. Watchlist + Like erzeugt keinen Match (Watchlist zählt weder als Like noch als Dislike)', async () => {
+    await createGroup('g17', ['alice', 'bob']);
+    await setSwipe('g17', 'alice', 618, 'watchlist');
+    await setSwipe('g17', 'bob', 618, 'like');
+
+    await assertNoMatchAfterSettling('g17', 618);
+  });
+
+  it('18. andere Mitglieder können trotz einer Watchlist-Entscheidung weiterhin unabhängig liken, und ein Match entsteht für einen anderen Film, wenn alle Mitglieder liken',
+      async () => {
+    await createGroup('g18', ['alice', 'bob', 'carol']);
+    // Alice setzt Film 619 auf ihre persönliche Watchlist - das darf weder
+    // diesen noch einen anderen Film der Gruppe beeinträchtigen.
+    await setSwipe('g18', 'alice', 619, 'watchlist');
+
+    // Bob und Carol können Film 619 unabhängig von Alice' Watchlist-Eintrag
+    // weiterhin ganz normal bewerten.
+    await setSwipe('g18', 'bob', 619, 'like');
+    await setSwipe('g18', 'carol', 619, 'dislike');
+    await assertNoMatchAfterSettling('g18', 619);
+
+    // Ein völlig anderer Film, den alle drei Mitglieder liken, matcht
+    // weiterhin normal - Alice' Watchlist-Eintrag zu Film 619 hat keinerlei
+    // Auswirkung auf die Match-Erkennung für Film 620.
+    await setSwipe('g18', 'alice', 620, 'like');
+    await setSwipe('g18', 'bob', 620, 'like');
+    await setSwipe('g18', 'carol', 620, 'like');
+    const snap = await waitForMatch('g18', 620);
+    assert.equal(snap.exists, true);
+    assert.deepEqual(snap.data().member_uids, ['alice', 'bob', 'carol']);
+
+    // Weiterhin kein Match für den Film auf der Watchlist.
+    const stillNoMatch = await matchRef('g18', 619).get();
+    assert.equal(stillNoMatch.exists, false);
+  });
 });

@@ -150,6 +150,55 @@ describe('groups/{groupId}/swipes/{swipeId}', () => {
     );
   });
 
+  it('erlaubt einem Mitglied, den eigenen Swipe anzulegen (watchlist)', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/bob_305').set({
+        uid: 'bob',
+        movie_id: 305,
+        decision: 'watchlist',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('lehnt es ab, dass ein fremder Nutzer eine Watchlist-Entscheidung für ein anderes Mitglied anlegt', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/alice_306').set({
+        uid: 'alice',
+        movie_id: 306,
+        decision: 'watchlist',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('erlaubt es dem User, den eigenen Swipe von like auf watchlist zu aktualisieren', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/alice_100').update({ decision: 'watchlist', updated_at: now() }),
+    );
+  });
+
+  it('lehnt es ab, dass ein fremder Nutzer eine bestehende Watchlist-Entscheidung verändert', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/bob_307').set({
+        uid: 'bob',
+        movie_id: 307,
+        decision: 'watchlist',
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/bob_307').update({ decision: 'like', updated_at: now() }),
+    );
+  });
+
   it('erlaubt einem Mitglied das Lesen eines Swipes in der eigenen Gruppe', async () => {
     const db = testEnv.authenticatedContext('bob').firestore();
     await assertSucceeds(db.doc('groups/swipesgroup1/swipes/alice_100').get());
