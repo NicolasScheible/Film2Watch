@@ -4,17 +4,19 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Onboarding-Tutorial**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-,
-Swipe- (inkl. Watchlist-Ansicht), Match-, Chat- und Push-System aus den vorherigen Schritten
-unverändert. Neu registrierte bzw. neu vervollständigte Nutzer sehen jetzt direkt nach der
-Profil-Vervollständigung einmalig ein dreiteiliges Tutorial (`OnboardingScreen`), das die
-Swipe-Richtungen (Like/Dislike, Skip/Watchlist) und das Hinzufügen von Freunden per Freundescode
-erklärt, bevor die Haupt-App (`AppShell`) erscheint. Der Abschluss wird serverseitig auf
-`users/{uid}.onboarding_completed` gespeichert, damit das Tutorial bei einem Login auf einem
-anderen Gerät nicht erneut erscheint.
+Aktueller Schritt: **Match-Systemnachricht im Chat**. Profil-, Freundes-, Profilbild-, Gruppen-,
+TMDB-, Swipe- (inkl. Watchlist-Ansicht), Match-, Chat-, Push- und Onboarding-System aus den
+vorherigen Schritten unverändert. Sobald ein Match entsteht, postet die bestehende
+`onMatchCreated`-Cloud-Function jetzt zusätzlich zur Push-Notification eine serverseitige
+System-Nachricht in den Gruppenchat (`type: 'match'` mit `movie_id`), damit das Match auch für
+Mitglieder sichtbar bleibt, die die Push verpassen oder erst später in den Chatverlauf schauen.
+Die Nachricht erscheint zentriert mit TMDB-Poster/Titel des gematchten Films und öffnet beim
+Antippen die Filmdetails.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Watchlist entfernen, Super Swipe/Premium, Filmabend-/Terminplanung, Werbung.
+globaler gruppenübergreifender Swipe-Tab (Spezifikation dazu bisher nicht eindeutig), Trailer-
+Button, Boost-Algorithmus, Watchlist entfernen, Super Swipe/Premium, Filmabend-/Terminplanung,
+Werbung.
 
 ## Tech-Stack
 
@@ -326,6 +328,13 @@ Notification-Runden für dasselbe Match verschickt werden.
 - Antippen einer Match-Karte (in der Gruppen- wie in der globalen Ansicht) öffnet die bestehende
   `MovieDetailScreen` (Poster, Backdrop, Titel, Beschreibung, Genres, Bewertung, Laufzeit,
   Erscheinungsjahr, Streaming-Anbieter) – bewusst keine zweite, redundante „Match-Detail"-Seite.
+- **Match-Systemnachricht im Chat:** `functions/postMatchChatMessage.js` postet, ausgelöst vom
+  selben `onMatchCreated`-Trigger wie `notifyMatch.js`, aber in einem eigenen `try/catch` und mit
+  einem eigenen `claimNotification`-Idempotenz-Marker (`chat_message_posted_at` statt
+  `notified_at` auf demselben Match-Dokument), eine Systemnachricht (`type: 'match', movie_id`) in
+  `groups/{groupId}/messages`. `MessageBubble` rendert diesen Typ als zentrierte Karte mit
+  TMDB-Poster/Titel (`movieDetailsProvider`) statt als normale Sprechblase; Antippen öffnet die
+  Filmdetails. Siehe „Datenmodell (Chat)" und „Chat-Funktion" unten für Details.
 - **Nicht Teil des Match-Systems:** Filmabend-/Terminplanung.
 
 ### Offene externe Deployments
@@ -339,7 +348,7 @@ Gesamtprojekts (Google/Apple Sign-In, APNs) betreffen nicht das Match-System und
 
 | Collection | Zweck | Zugriff |
 |---|---|---|
-| `groups/{groupId}/messages/{messageId}` | Eine Chat-Nachricht (`sender_uid, text, created_at`) | lesbar/anlegbar für Mitglieder der Gruppe, kein Update/Delete |
+| `groups/{groupId}/messages/{messageId}` | Eine Chat-Nachricht: entweder eine Text-Nachricht (`sender_uid, text, created_at`) oder eine serverseitige Match-Systemnachricht (`type: 'match', movie_id, created_at`) | Text-Nachrichten: lesbar/anlegbar für Mitglieder der Gruppe, kein Update/Delete. Match-Systemnachrichten: ausschließlich per Admin-SDK durch `postMatchChatMessage.js` erzeugt, kein Client-Schreibzugriff möglich |
 
 Firestore-Auto-ID pro Nachricht. Bewusst **keine** `sender_name`/`sender_profile_picture`-Kopie im
 Dokument: beide lassen sich zuverlässig über das bestehende `public_profiles/{uid}` nachschlagen
@@ -348,6 +357,15 @@ Name/Bild später ändern. `created_at` wird ausschließlich serverseitig über
 `FieldValue.serverTimestamp()` gesetzt – die lokale Gerätezeit ist keine vertrauenswürdige Quelle;
 die Security Rule erzwingt das (`created_at == request.time`), ein client-gesetzter Zeitstempel
 wird abgelehnt.
+
+**Match-Systemnachrichten (`type: 'match'`):** Bestehende Dokumente ohne `type`-Feld gelten
+weiterhin als normale Text-Nachricht (`ChatMessageType.text`, Default) – vollständig
+rückwärtskompatibel. Enthalten bewusst nur `movie_id`, keinen Filmtitel: Cloud Functions haben
+keinen TMDB-Zugriff und sollen auch keinen bekommen (dasselbe Architekturprinzip wie beim
+Match-Dokument selbst), der Client löst den Film über `movieDetailsProvider` auf. Die bestehende
+`create`-Rule für Text-Nachrichten (`keys().hasOnly(['sender_uid', 'text', 'created_at'])`) lehnt
+jeden Versuch eines Clients, ein `type: 'match'`-Dokument zu fälschen, bereits strukturell ab –
+keine separate Rule nötig, siehe zwei explizite Negativ-Tests in `messages.rules.test.mjs`.
 
 **Maximale Nachrichtenlänge:** 2000 Zeichen (`chatMaxMessageLength` in `lib/services/chat_service.dart`,
 identisch in `firestore.rules` gespiegelt). Ohne konkrete Vorgabe aus einer übergeordneten
@@ -390,9 +408,14 @@ Entwicklungsschritt.
 - **Sicherheit:** Manipulierte `groupId` ermöglicht keinen Zugriff auf fremde Chats – das wird
   unabhängig von der UI durch `firestore.rules` erzwungen (`isGroupMember(groupId)` für read/create,
   `sender_uid == request.auth.uid`, `update`/`delete` kategorisch `false`).
-- **Nicht Teil dieses Schritts:** Match-Systemnachrichten im Chat, Push-Benachrichtigungen,
-  Filmabend-/Terminplanung, RSVP, Watch Party. Keine neue Cloud Function – normale
-  Chat-Nachrichten kommen ohne serverseitige Logik aus, Firestore Rules reichen aus.
+- **Match-Systemnachrichten:** `postMatchChatMessage.js` (eigener `try/catch` neben
+  `notifyMatch.js` im selben `onMatchCreated`-Trigger, eigener `claimNotification`-Idempotenz-
+  Marker) postet automatisch eine Systemnachricht, sobald ein Match entsteht. `MessageBubble`
+  rendert diese als zentrierte Karte mit TMDB-Poster/Titel statt als normale Sprechblase; Antippen
+  öffnet `MovieDetailScreen`. `notifyChatMessage.js` (Push für normale Nachrichten) ignoriert
+  Systemnachrichten automatisch (fehlender `sender_uid` lässt die Funktion früh zurückkehren) –
+  keine doppelte oder fälschliche Push-Notification dafür.
+- **Nicht Teil dieses Schritts:** Filmabend-/Terminplanung, RSVP, Watch Party.
 
 ## Datenmodell (FCM-Geräte-Tokens)
 
@@ -444,9 +467,12 @@ des Token-Werts. `created_at`/`updated_at` sind serverseitige Timestamps
 - **Duplikat-Schutz:** Cloud Functions garantieren nur „at-least-once"-Zustellung – derselbe
   Trigger kann in seltenen Fällen erneut ausgeführt werden. `claimNotification()`
   (`functions/notifications.js`) beansprucht das Senderecht atomar über eine Firestore-Transaktion
-  (prüft/setzt ein `notified_at`-Feld auf dem jeweiligen Quelldokument) – nur der erste
-  erfolgreiche Aufruf sendet tatsächlich, jeder weitere bricht sauber ab. Kein naives „ein Trigger
-  = garantiert eine Notification".
+  (prüft/setzt standardmäßig ein `notified_at`-Feld auf dem jeweiligen Quelldokument) – nur der
+  erste erfolgreiche Aufruf sendet tatsächlich, jeder weitere bricht sauber ab. Kein naives „ein
+  Trigger = garantiert eine Notification". Der optionale `field`-Parameter erlaubt mehrere
+  unabhängige Claims auf demselben Dokument (z. B. Push-Notification `notified_at` und
+  Chat-Systemnachricht `chat_message_posted_at` auf demselben Match-Dokument) – jede Aktion
+  beansprucht ihr eigenes Marker-Feld, ohne sich gegenseitig zu blockieren.
 - **Token-Cleanup:** `sendToUsers()` inspiziert die FCM-Antwort pro Token; meldet FCM
   `registration-token-not-registered`/`invalid-registration-token`, wird das betroffene
   Device-Dokument gelöscht – kein endloses erneutes Zustellen an tote Tokens.

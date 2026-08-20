@@ -1,14 +1,43 @@
+import 'dart:convert';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:film2watch/providers/auth_provider.dart';
 import 'package:film2watch/providers/chat_provider.dart';
+import 'package:film2watch/providers/tmdb_provider.dart';
 import 'package:film2watch/repositories/chat_repository.dart';
 import 'package:film2watch/repositories/group_repository.dart';
 import 'package:film2watch/screens/groups/group_chat_screen.dart';
+import 'package:film2watch/screens/movies/movie_detail_screen.dart';
 import 'package:film2watch/services/chat_service.dart';
+import 'package:film2watch/services/tmdb_service.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+
+/// Beantwortet Film-Details für ein festes Set an [movies] (id -> Titel) -
+/// analog zum Muster in `group_watchlist_ui_test.dart`.
+TmdbService _tmdbService(Map<int, String> movies) {
+  final client = MockClient((request) async {
+    final match = RegExp(r'/movie/(\d+)$').firstMatch(request.url.path);
+    if (match != null) {
+      final id = int.parse(match.group(1)!);
+      final title = movies[id];
+      if (title != null) {
+        return http.Response(
+          jsonEncode({'id': id, 'title': title, 'genres': <dynamic>[], 'overview': ''}),
+          200,
+        );
+      }
+      return http.Response('{"status_message":"not found"}', 404);
+    }
+    return http.Response('{}', 404);
+  });
+  return TmdbService(client, accessToken: 'test-token');
+}
 
 /// Verzögertes [ChatService], um den Loading-/Disabled-Zustand während eines
 /// laufenden Sendevorgangs deterministisch beobachten zu können (analog zum
@@ -169,6 +198,44 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('zu lang'), findsOneWidget);
+    });
+
+    testWidgets('Match-Systemnachricht erscheint zentriert mit Filmtitel und öffnet beim Antippen die Filmdetails',
+        (tester) async {
+      final firestore = FakeFirebaseFirestore();
+      final groupId = await _seedGroup(firestore);
+      await ChatRepository(firestore).sendMessage(groupId: groupId, senderUid: 'alice', text: 'Vorher');
+      await firestore.collection('groups').doc(groupId).collection('messages').add({
+        'type': 'match',
+        'movie_id': 550,
+        'created_at': Timestamp.now(),
+      });
+      final auth = MockFirebaseAuth(
+        mockUser: MockUser(uid: 'alice', email: 'alice@film2watch.app'),
+        signedIn: true,
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            firebaseAuthProvider.overrideWithValue(auth),
+            firestoreProvider.overrideWithValue(firestore),
+            tmdbServiceProvider.overrideWithValue(_tmdbService({550: 'Fight Club'})),
+          ],
+          child: MaterialApp(home: GroupChatScreen(groupId: groupId)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Vorher'), findsOneWidget);
+      expect(find.text('Neuer Match! 🍿'), findsOneWidget);
+      expect(find.text('Fight Club'), findsOneWidget);
+
+      await tester.tap(find.text('Fight Club'));
+      await tester.pumpAndSettle();
+
+      final detailScreen = tester.widget<MovieDetailScreen>(find.byType(MovieDetailScreen));
+      expect(detailScreen.tmdbId, 550);
     });
   });
 }

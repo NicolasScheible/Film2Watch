@@ -67,21 +67,27 @@ async function sendToUsers({ firestore, messaging, uids, notification, data }) {
 }
 
 /**
- * Beansprucht das Recht, für [ref] genau einmal eine Notification zu
- * versenden - schützt gegen Cloud Functions' "at-least-once"-Zustellung
- * (derselbe Trigger kann in seltenen Fällen erneut ausgeführt werden).
- * Atomar über eine Transaktion: nur der erste erfolgreiche Aufruf für ein
- * gegebenes Dokument liefert `true`, jeder weitere `false`.
+ * Beansprucht das Recht, für [ref] genau einmal eine bestimmte Aktion
+ * auszuführen (z. B. eine Notification zu versenden) - schützt gegen Cloud
+ * Functions' "at-least-once"-Zustellung (derselbe Trigger kann in seltenen
+ * Fällen erneut ausgeführt werden). Atomar über eine Transaktion: nur der
+ * erste erfolgreiche Aufruf für ein gegebenes Dokument+Feld liefert `true`,
+ * jeder weitere `false`.
  *
- * @param {{ firestore: FirebaseFirestore.Firestore, ref: FirebaseFirestore.DocumentReference }} params
+ * [field] erlaubt mehrere unabhängige Claims auf demselben Dokument (z. B.
+ * Push-Notification und Chat-Systemnachricht für dasselbe Match) - jede
+ * Aktion beansprucht ihr eigenes Marker-Feld, ohne sich gegenseitig zu
+ * blockieren.
+ *
+ * @param {{ firestore: FirebaseFirestore.Firestore, ref: FirebaseFirestore.DocumentReference, field?: string }} params
  * @returns {Promise<boolean>}
  */
-async function claimNotification({ firestore, ref }) {
+async function claimNotification({ firestore, ref, field = 'notified_at' }) {
   return firestore.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(ref);
     if (!snapshot.exists) return false;
-    if (snapshot.data().notified_at) return false;
-    transaction.update(ref, { notified_at: new Date() });
+    if (snapshot.data()[field]) return false;
+    transaction.update(ref, { [field]: new Date() });
     return true;
   });
 }

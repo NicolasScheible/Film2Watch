@@ -227,7 +227,13 @@ service cloud.firestore {
       // dieser ersten Version unveränderlich (kein Bearbeiten/Löschen durch
       // normale Mitglieder) - eine spätere Erweiterung ist ein eigener
       // Entwicklungsschritt. `hasOnly` verhindert zusätzliche, nicht
-      // vorgesehene Felder (z. B. eine untergeschobene Sender-Kopie).
+      // vorgesehene Felder (z. B. eine untergeschobene Sender-Kopie). Diese
+      // Regel deckt bewusst nur clientseitig geschriebene Text-Nachrichten
+      // ab: serverseitige Match-Systemnachrichten (`type: 'match'`, siehe
+      // `functions/postMatchChatMessage.js`) haben eine andere Feldform
+      // (`movie_id` statt `sender_uid`/`text`) und werden allein deshalb
+      // schon strukturell von `create` abgelehnt, zusätzlich zum
+      // Admin-SDK-Bypass für den echten Server-Schreibzugriff.
       match /messages/{messageId} {
         allow read: if isGroupMember(groupId);
 

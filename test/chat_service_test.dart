@@ -51,7 +51,7 @@ void main() {
       await chatService.sendMessage(groupId: groupId, senderUid: 'alice', text: text);
 
       final messages = await chatRepository.watchLatestMessages(groupId).first;
-      expect(messages.single.text.length, chatMaxMessageLength);
+      expect(messages.single.text!.length, chatMaxMessageLength);
     });
 
     test('zu lange Nachricht wird abgelehnt', () async {

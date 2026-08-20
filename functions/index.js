@@ -7,6 +7,7 @@ const { notifyFriendRequest } = require('./notifyFriendRequest');
 const { notifyGroupInvitation } = require('./notifyGroupInvitation');
 const { notifyMatch } = require('./notifyMatch');
 const { notifyChatMessage } = require('./notifyChatMessage');
+const { postMatchChatMessage } = require('./postMatchChatMessage');
 
 admin.initializeApp();
 
@@ -110,6 +111,29 @@ exports.onMatchCreated = functions.firestore
       });
     } catch (error) {
       functions.logger.error('Match-Notification fehlgeschlagen', {
+        groupId: context.params.groupId,
+        matchId: context.params.matchId,
+        error: error.message,
+      });
+    }
+
+    // Eigener try/catch: das Posten der Chat-Systemnachricht darf
+    // unabhängig vom Push-Versand fehlschlagen oder gelingen (getrennte
+    // Idempotenz-Felder auf demselben Match-Dokument, siehe
+    // `postMatchChatMessage.js`).
+    try {
+      const data = snapshot.data();
+      const movieId = typeof data.movie_id === 'number' ? data.movie_id : Number(data.movie_id);
+      if (!Number.isNaN(movieId)) {
+        await postMatchChatMessage({
+          firestore: admin.firestore(),
+          groupId: context.params.groupId,
+          matchRef: snapshot.ref,
+          movieId,
+        });
+      }
+    } catch (error) {
+      functions.logger.error('Match-Chatnachricht fehlgeschlagen', {
         groupId: context.params.groupId,
         matchId: context.params.matchId,
         error: error.message,

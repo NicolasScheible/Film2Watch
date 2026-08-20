@@ -187,4 +187,33 @@ describe('groups/{groupId}/messages/{messageId}', () => {
       }),
     );
   });
+
+  // Match-Systemnachrichten (`type: 'match'`) werden ausschließlich
+  // serverseitig von `functions/postMatchChatMessage.js` per Admin-SDK
+  // geschrieben (umgeht Security Rules vollständig). Ein Client darf ein
+  // solches Dokument nicht selbst erzeugen können - weder unter eigenem
+  // Namen noch getarnt als normale Text-Nachricht.
+  it('lehnt es ab, dass ein Client eine Match-Systemnachricht fälscht', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.collection('groups/chatgroup1/messages').add({
+        type: 'match',
+        movie_id: 550,
+        created_at: now(),
+      }),
+    );
+  });
+
+  it('lehnt es ab, dass ein Client eine Match-Systemnachricht als eigene Text-Nachricht mit type-Feld tarnt', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.collection('groups/chatgroup1/messages').add({
+        type: 'match',
+        sender_uid: 'bob',
+        text: 'Ich behaupte, ein Match zu sein',
+        movie_id: 550,
+        created_at: now(),
+      }),
+    );
+  });
 });

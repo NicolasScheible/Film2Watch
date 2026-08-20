@@ -6,6 +6,7 @@ import { notifyFriendRequest } from '../notifyFriendRequest.js';
 import { notifyGroupInvitation } from '../notifyGroupInvitation.js';
 import { notifyMatch } from '../notifyMatch.js';
 import { notifyChatMessage } from '../notifyChatMessage.js';
+import { postMatchChatMessage } from '../postMatchChatMessage.js';
 
 // Testet die reine Notification-Logik (Empfänger-Ermittlung, Ausschluss des
 // Absenders, Duplikat-Schutz, Cleanup ungültiger Tokens) gegen den echten
@@ -275,6 +276,71 @@ describe('Push-Notification-Logik', () => {
 
       assert.equal(first, true);
       assert.equal(second, false);
+    });
+
+    it('erlaubt unabhängige Claims auf demselben Dokument über verschiedene Felder', async () => {
+      const ref = db.doc(`groups/claimtest2-${Date.now()}/matches/1`);
+      await ref.set({ movie_id: 1, member_uids: ['alice'], matched_at: now() });
+
+      const pushClaimed = await claimNotification({ firestore: db, ref, field: 'notified_at' });
+      const chatClaimed = await claimNotification({ firestore: db, ref, field: 'chat_message_posted_at' });
+      // Ein zweiter Versuch auf demselben Feld bleibt weiterhin blockiert.
+      const pushClaimedAgain = await claimNotification({ firestore: db, ref, field: 'notified_at' });
+
+      assert.equal(pushClaimed, true);
+      assert.equal(chatClaimed, true);
+      assert.equal(pushClaimedAgain, false);
+    });
+  });
+
+  describe('postMatchChatMessage', () => {
+    it('postet eine Systemnachricht mit der movie_id in den Gruppenchat', async () => {
+      const groupId = `matchchat-${Date.now()}`;
+      const matchRef = db.doc(`groups/${groupId}/matches/550`);
+      await matchRef.set({ movie_id: 550, member_uids: ['alice'], matched_at: now() });
+
+      await postMatchChatMessage({ firestore: db, groupId, matchRef, movieId: 550 });
+
+      const messages = await db.collection(`groups/${groupId}/messages`).get();
+      assert.equal(messages.size, 1);
+      const data = messages.docs[0].data();
+      assert.equal(data.type, 'match');
+      assert.equal(data.movie_id, 550);
+      assert.equal(data.sender_uid, undefined);
+      assert.equal(data.text, undefined);
+    });
+
+    it('ein erneuter Aufruf für dasselbe Match postet keine zweite Systemnachricht (Duplikatschutz)', async () => {
+      const groupId = `matchchat2-${Date.now()}`;
+      const matchRef = db.doc(`groups/${groupId}/matches/551`);
+      await matchRef.set({ movie_id: 551, member_uids: ['alice'], matched_at: now() });
+
+      await postMatchChatMessage({ firestore: db, groupId, matchRef, movieId: 551 });
+      await postMatchChatMessage({ firestore: db, groupId, matchRef, movieId: 551 });
+
+      const messages = await db.collection(`groups/${groupId}/messages`).get();
+      assert.equal(messages.size, 1);
+    });
+
+    it('nutzt einen eigenen Idempotenz-Marker, unabhängig vom Push-Duplikatschutz von notifyMatch', async () => {
+      const groupId = `matchchat3-${Date.now()}`;
+      const alice = `alice-${Date.now()}`;
+      await db.doc(`groups/${groupId}`).set({ id: groupId, name: 'Filmabend', created_by: alice, created_at: now(), updated_at: now() });
+      await db.doc(`groups/${groupId}/members/${alice}`).set({ uid: alice, role: 'admin', joined_at: now() });
+      await addDevice(alice, `${alice}-tok`);
+      const matchRef = db.doc(`groups/${groupId}/matches/552`);
+      await matchRef.set({ movie_id: 552, member_uids: [alice], matched_at: now() });
+      const messaging = new FakeMessaging();
+
+      // notifyMatch beansprucht `notified_at` - darf postMatchChatMessage
+      // (eigenes Feld `chat_message_posted_at`) nicht blockieren, und
+      // umgekehrt.
+      await notifyMatch({ firestore: db, messaging, groupId, matchRef });
+      await postMatchChatMessage({ firestore: db, groupId, matchRef, movieId: 552 });
+
+      assert.equal(messaging.sentMessages.length, 1);
+      const messages = await db.collection(`groups/${groupId}/messages`).get();
+      assert.equal(messages.size, 1);
     });
   });
 });
