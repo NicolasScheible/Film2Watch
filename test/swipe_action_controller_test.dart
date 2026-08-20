@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:film2watch/models/movie_swipe.dart';
 import 'package:film2watch/providers/auth_provider.dart';
 import 'package:film2watch/providers/group_provider.dart';
 import 'package:film2watch/providers/swipe_action_controller.dart';
@@ -132,6 +133,36 @@ void main() {
           .where('movie_id', isEqualTo: 3)
           .get();
       expect(snapshot.docs, hasLength(1));
+    });
+
+    test('Skip landet im Erfolg und speichert decision == skip', () async {
+      final notifier = container.read(swipeActionControllerProvider(groupId).notifier);
+
+      await notifier.skip(4);
+
+      expect(container.read(swipeActionControllerProvider(groupId)).hasError, isFalse);
+      final swipe = await container
+          .read(swipeRepositoryProvider)
+          .getSwipe(groupId: groupId, uid: 'alice', movieId: 4);
+      expect(swipe, isNotNull);
+      expect(swipe!.decision, SwipeDecision.skip);
+    });
+
+    test('mehrfaches schnelles Skippen (schnelle Mehrfachaktion) erzeugt nur einen einzigen Swipe', () async {
+      final notifier = container.read(swipeActionControllerProvider(groupId).notifier);
+
+      final first = notifier.skip(5);
+      final second = notifier.skip(5);
+      await Future.wait([first, second]);
+
+      final snapshot = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .where('movie_id', isEqualTo: 5)
+          .get();
+      expect(snapshot.docs, hasLength(1));
+      expect(snapshot.docs.first.data()['decision'], 'skip');
     });
   });
 }

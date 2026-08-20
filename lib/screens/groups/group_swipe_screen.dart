@@ -17,7 +17,10 @@ import '../movies/movie_detail_screen.dart';
 
 /// Echte Gruppen-Swipe-Oberfläche: Filme aus TMDB Discover, gefiltert um
 /// bereits vom aktuellen User bewertete Filme dieser Gruppe. Speichert Like/
-/// Dislike dauerhaft in Firestore. Reagiert live auf neu entstandene Matches
+/// Dislike/Skip dauerhaft in Firestore - ein Skip ("Vielleicht später")
+/// blendet den Film nur für diesen User aus, zählt nie als Like oder
+/// Dislike und beeinflusst nie die Match-Erkennung oder die Swipes anderer
+/// Mitglieder. Reagiert live auf neu entstandene Matches
 /// (serverseitig per Cloud Function erkannt, siehe `functions/index.js`) mit
 /// einer "Match! 🍿"-Anzeige. Noch kein Chat.
 class GroupSwipeScreen extends ConsumerStatefulWidget {
@@ -40,10 +43,13 @@ class _GroupSwipeScreenState extends ConsumerState<GroupSwipeScreen> {
 
   void _handleSwiped(SwipeCardDirection direction, Movie movie) {
     final notifier = ref.read(swipeActionControllerProvider(widget.groupId).notifier);
-    if (direction == SwipeCardDirection.like) {
-      notifier.like(movie.tmdbId);
-    } else {
-      notifier.dislike(movie.tmdbId);
+    switch (direction) {
+      case SwipeCardDirection.like:
+        notifier.like(movie.tmdbId);
+      case SwipeCardDirection.dislike:
+        notifier.dislike(movie.tmdbId);
+      case SwipeCardDirection.skip:
+        notifier.skip(movie.tmdbId);
     }
   }
 
@@ -120,6 +126,12 @@ class _GroupSwipeScreenState extends ConsumerState<GroupSwipeScreen> {
                         color: Colors.redAccent,
                         enabled: !isBusy,
                         onPressed: () => _cardKey.currentState?.triggerDislike(),
+                      ),
+                      _SwipeActionButton(
+                        icon: Icons.watch_later_outlined,
+                        color: Colors.amber,
+                        enabled: !isBusy,
+                        onPressed: () => _cardKey.currentState?.triggerSkip(),
                       ),
                       _SwipeActionButton(
                         icon: Icons.favorite,

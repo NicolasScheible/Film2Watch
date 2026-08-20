@@ -4,12 +4,17 @@ import '../../models/movie.dart';
 import '../../services/tmdb_image_service.dart';
 import '../../theme/app_theme.dart';
 
-enum SwipeCardDirection { like, dislike }
+enum SwipeCardDirection { like, dislike, skip }
 
 /// Eine zieh-/wischbare Filmkarte. Buttons steuern dieselbe Karte über
-/// [SwipeCardState.triggerLike]/[SwipeCardState.triggerDislike] - dieselbe
-/// Animation und derselbe [onSwiped]-Aufruf wie bei einer echten Geste,
-/// keine doppelte Business-Logik.
+/// [SwipeCardState.triggerLike]/[SwipeCardState.triggerDislike]/
+/// [SwipeCardState.triggerSkip] - dieselbe Animation und derselbe
+/// [onSwiped]-Aufruf wie bei einer echten Geste, keine doppelte
+/// Business-Logik. Skip wird durch ein Wischen nach unten ausgelöst (analog
+/// zu Like=rechts/Dislike=links) und blendet den Film laut Produktspezifikation
+/// nur für den aktuellen Nutzer aus - das setzt ausschließlich
+/// [onSwiped] mit [SwipeCardDirection.skip] um, ohne eigene Ausblend-Logik
+/// hier in der Karte.
 class SwipeCard extends StatefulWidget {
   const SwipeCard({
     super.key,
@@ -59,12 +64,21 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
 
   void triggerDislike() => _fling(SwipeCardDirection.dislike);
 
+  void triggerSkip() => _fling(SwipeCardDirection.skip);
+
   void _fling(SwipeCardDirection direction) {
     if (!widget.isEnabled) return;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final targetX =
-        direction == SwipeCardDirection.like ? screenWidth * 1.2 : -screenWidth * 1.2;
-    _runAnimation(Offset(targetX, _dragOffset.dy), onComplete: () => widget.onSwiped(direction));
+    final size = MediaQuery.of(context).size;
+    final Offset target;
+    switch (direction) {
+      case SwipeCardDirection.like:
+        target = Offset(size.width * 1.2, _dragOffset.dy);
+      case SwipeCardDirection.dislike:
+        target = Offset(-size.width * 1.2, _dragOffset.dy);
+      case SwipeCardDirection.skip:
+        target = Offset(_dragOffset.dx, size.height * 1.2);
+    }
+    _runAnimation(target, onComplete: () => widget.onSwiped(direction));
   }
 
   void _runAnimation(Offset target, {VoidCallback? onComplete}) {
@@ -92,7 +106,13 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
   void _onPanEnd(DragEndDetails details) {
     if (!widget.isEnabled || !_dragging) return;
     _dragging = false;
-    if (_dragOffset.dx.abs() > _swipeThreshold) {
+    final horizontal = _dragOffset.dx.abs();
+    final verticalDown = _dragOffset.dy > 0 ? _dragOffset.dy : 0.0;
+
+    if (verticalDown > _swipeThreshold && verticalDown >= horizontal) {
+      // Vorwiegend nach unten gezogen - Runter = Skip/"Vielleicht später".
+      _fling(SwipeCardDirection.skip);
+    } else if (horizontal > _swipeThreshold) {
       _fling(_dragOffset.dx > 0 ? SwipeCardDirection.like : SwipeCardDirection.dislike);
     } else {
       _runAnimation(Offset.zero);
@@ -104,6 +124,7 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
     final angle = (_dragOffset.dx / 800).clamp(-0.4, 0.4);
     final likeOpacity = (_dragOffset.dx / _swipeThreshold).clamp(0.0, 1.0);
     final dislikeOpacity = (-_dragOffset.dx / _swipeThreshold).clamp(0.0, 1.0);
+    final skipOpacity = (_dragOffset.dy / _swipeThreshold).clamp(0.0, 1.0);
 
     return GestureDetector(
       onPanStart: _onPanStart,
@@ -125,6 +146,14 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
                 top: 28,
                 right: 24,
                 child: _DirectionBadge(label: 'NOPE', color: Colors.redAccent, opacity: dislikeOpacity),
+              ),
+              Positioned(
+                bottom: 28,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: _DirectionBadge(label: 'SKIP', color: Colors.amber, opacity: skipOpacity),
+                ),
               ),
             ],
           ),

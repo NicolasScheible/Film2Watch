@@ -1,11 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/movie_swipe.dart';
 import 'auth_provider.dart';
 import 'swipe_provider.dart';
 import 'swipe_queue_controller.dart';
 
-/// Speichert Like/Dislike für den aktuell angezeigten Film. Verhindert per
-/// [AsyncValue.isLoading] mehrfaches Auslösen durch schnelles Antippen/
+/// Speichert Like/Dislike/Skip für den aktuell angezeigten Film. Verhindert
+/// per [AsyncValue.isLoading] mehrfaches Auslösen durch schnelles Antippen/
 /// mehrfaches Swipen, während ein Speichervorgang noch läuft.
 class SwipeActionController extends AsyncNotifier<void> {
   SwipeActionController(this.groupId);
@@ -15,21 +16,29 @@ class SwipeActionController extends AsyncNotifier<void> {
   @override
   Future<void> build() async {}
 
-  Future<void> like(int movieId) => _swipe(movieId, like: true);
+  Future<void> like(int movieId) => _swipe(movieId, decision: SwipeDecision.like);
 
-  Future<void> dislike(int movieId) => _swipe(movieId, like: false);
+  Future<void> dislike(int movieId) => _swipe(movieId, decision: SwipeDecision.dislike);
 
-  Future<void> _swipe(int movieId, {required bool like}) async {
+  /// Blendet den Film nur für den aktuellen User aus der Warteschlange
+  /// dieser Gruppe aus - andere Mitglieder sehen und bewerten ihn
+  /// unverändert weiter, und es entsteht dadurch nie ein Match.
+  Future<void> skip(int movieId) => _swipe(movieId, decision: SwipeDecision.skip);
+
+  Future<void> _swipe(int movieId, {required SwipeDecision decision}) async {
     final uid = ref.read(authStateChangesProvider).value?.uid;
     if (uid == null || state.isLoading) return;
 
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
       final service = ref.read(swipeServiceProvider);
-      if (like) {
-        await service.likeMovie(groupId: groupId, uid: uid, movieId: movieId);
-      } else {
-        await service.dislikeMovie(groupId: groupId, uid: uid, movieId: movieId);
+      switch (decision) {
+        case SwipeDecision.like:
+          await service.likeMovie(groupId: groupId, uid: uid, movieId: movieId);
+        case SwipeDecision.dislike:
+          await service.dislikeMovie(groupId: groupId, uid: uid, movieId: movieId);
+        case SwipeDecision.skip:
+          await service.skipMovie(groupId: groupId, uid: uid, movieId: movieId);
       }
       await ref
           .read(swipeQueueControllerProvider(groupId).notifier)

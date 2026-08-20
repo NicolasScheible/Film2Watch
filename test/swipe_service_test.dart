@@ -64,6 +64,67 @@ void main() {
       expect(swipe!.decision, SwipeDecision.dislike);
     });
 
+    test('Skip speichert eine Entscheidung mit decision == skip', () async {
+      await swipeService.skipMovie(groupId: groupId, uid: 'alice', movieId: 556);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 556);
+      expect(swipe, isNotNull);
+      expect(swipe!.decision, SwipeDecision.skip);
+    });
+
+    test('Skip ist userbezogen - ein zweites Mitglied kann denselben Film unabhängig bewerten', () async {
+      await swipeService.skipMovie(groupId: groupId, uid: 'alice', movieId: 557);
+      await swipeService.likeMovie(groupId: groupId, uid: 'bob', movieId: 557);
+
+      final aliceSwipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 557);
+      final bobSwipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'bob', movieId: 557);
+      expect(aliceSwipe!.decision, SwipeDecision.skip);
+      expect(bobSwipe!.decision, SwipeDecision.like);
+    });
+
+    test('geskippter Film wird von getSwipedMovieIds erkannt (wird aus der Warteschlange ausgeblendet)', () async {
+      await swipeService.skipMovie(groupId: groupId, uid: 'bob', movieId: 558);
+
+      final swipedIds = await swipeRepository.getSwipedMovieIds(groupId: groupId, uid: 'bob');
+      expect(swipedIds, contains(558));
+    });
+
+    test('doppeltes Skip erzeugt kein zweites Dokument (Idempotenz)', () async {
+      await swipeService.skipMovie(groupId: groupId, uid: 'alice', movieId: 559);
+      await swipeService.skipMovie(groupId: groupId, uid: 'alice', movieId: 559);
+
+      final snapshot = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .where('movie_id', isEqualTo: 559)
+          .get();
+      expect(snapshot.docs, hasLength(1));
+    });
+
+    test('Like -> Skip aktualisiert die bestehende Entscheidung statt ein neues Dokument anzulegen', () async {
+      await swipeService.likeMovie(groupId: groupId, uid: 'alice', movieId: 560);
+      await swipeService.skipMovie(groupId: groupId, uid: 'alice', movieId: 560);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 560);
+      expect(swipe!.decision, SwipeDecision.skip);
+
+      final snapshot = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .where('movie_id', isEqualTo: 560)
+          .get();
+      expect(snapshot.docs, hasLength(1));
+    });
+
+    test('Skip durch ein Nicht-Mitglied schlägt fehl', () async {
+      expect(
+        () => swipeService.skipMovie(groupId: groupId, uid: 'carol', movieId: 561),
+        throwsA(isA<GroupActionException>()),
+      );
+    });
+
     test('bereits bewerteter Film wird erkannt', () async {
       await swipeService.likeMovie(groupId: groupId, uid: 'bob', movieId: 552);
 

@@ -101,6 +101,55 @@ describe('groups/{groupId}/swipes/{swipeId}', () => {
     );
   });
 
+  it('erlaubt einem Mitglied, den eigenen Swipe anzulegen (skip)', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/bob_302').set({
+        uid: 'bob',
+        movie_id: 302,
+        decision: 'skip',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('lehnt es ab, dass ein fremder Nutzer einen Skip für ein anderes Mitglied anlegt', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/alice_303').set({
+        uid: 'alice',
+        movie_id: 303,
+        decision: 'skip',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('erlaubt es dem User, den eigenen Swipe von like auf skip zu aktualisieren', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/alice_100').update({ decision: 'skip', updated_at: now() }),
+    );
+  });
+
+  it('lehnt es ab, dass ein fremder Nutzer einen bestehenden Skip verändert', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/bob_304').set({
+        uid: 'bob',
+        movie_id: 304,
+        decision: 'skip',
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/bob_304').update({ decision: 'like', updated_at: now() }),
+    );
+  });
+
   it('erlaubt einem Mitglied das Lesen eines Swipes in der eigenen Gruppe', async () => {
     const db = testEnv.authenticatedContext('bob').firestore();
     await assertSucceeds(db.doc('groups/swipesgroup1/swipes/alice_100').get());

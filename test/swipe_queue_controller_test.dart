@@ -94,6 +94,66 @@ void main() {
       expect(queue.map((m) => m.tmdbId), isNot(contains(1)));
     });
 
+    test('geskippte Filme werden ebenfalls aus der Warteschlange ausgeblendet', () async {
+      final firestore = FakeFirebaseFirestore();
+      final now = DateTime.now();
+      await firestore
+          .collection('groups')
+          .doc('g1')
+          .collection('swipes')
+          .doc('alice_1')
+          .set(MovieSwipe(
+            uid: 'alice',
+            movieId: 1,
+            decision: SwipeDecision.skip,
+            createdAt: now,
+            updatedAt: now,
+          ).toFirestore());
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.map((m) => m.tmdbId), containsAll([2, 3]));
+      expect(queue.map((m) => m.tmdbId), isNot(contains(1)));
+    });
+
+    test(
+        'leere Warteschlange ohne Endlosschleife, wenn alle verfügbaren Filme bereits like/dislike/skip bewertet wurden',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      final now = DateTime.now();
+      final decisions = {1: SwipeDecision.like, 2: SwipeDecision.dislike, 3: SwipeDecision.skip};
+      for (final entry in decisions.entries) {
+        await firestore
+            .collection('groups')
+            .doc('g1')
+            .collection('swipes')
+            .doc('alice_${entry.key}')
+            .set(MovieSwipe(
+              uid: 'alice',
+              movieId: entry.key,
+              decision: entry.value,
+              createdAt: now,
+              updatedAt: now,
+            ).toFirestore());
+      }
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container
+          .read(swipeQueueControllerProvider('g1').future)
+          .timeout(const Duration(seconds: 5));
+
+      expect(queue, isEmpty);
+    });
+
     test('leere Warteschlange, wenn TMDB keine weiteren Filme mehr liefert', () async {
       final firestore = FakeFirebaseFirestore();
       final tmdbService = _tmdbServiceForPages({1: []}, totalPages: 1);

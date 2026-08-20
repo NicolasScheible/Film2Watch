@@ -20,6 +20,15 @@ class SwipeService {
     return _swipe(groupId: groupId, uid: uid, movieId: movieId, decision: SwipeDecision.dislike);
   }
 
+  /// Blendet einen Film für [uid] persönlich aus der Warteschlange dieser
+  /// Gruppe aus ("Vielleicht später") - zählt bewusst weder als Like noch
+  /// als Dislike und beeinflusst damit nie die Match-Erkennung
+  /// (`functions/matchEngine.js` prüft ausschließlich `decision == 'like'`)
+  /// und nie die Swipes anderer Mitglieder.
+  Future<void> skipMovie({required String groupId, required String uid, required int movieId}) {
+    return _swipe(groupId: groupId, uid: uid, movieId: movieId, decision: SwipeDecision.skip);
+  }
+
   Future<void> _swipe({
     required String groupId,
     required String uid,

@@ -234,4 +234,40 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
     assert.equal(allMatches.size, 1);
     assert.deepEqual(allMatches.docs[0].data().member_uids, ['alice', 'bob', 'carol']);
   });
+
+  it('14. Skip + Like erzeugt keinen Match (Skip zählt weder als Like noch als Dislike)', async () => {
+    await createGroup('g14', ['alice', 'bob']);
+    await setSwipe('g14', 'alice', 614, 'skip');
+    await setSwipe('g14', 'bob', 614, 'like');
+
+    await assertNoMatchAfterSettling('g14', 614);
+  });
+
+  it('15. andere Mitglieder können trotz eines Skips weiterhin unabhängig liken, und ein Match entsteht für einen anderen Film, wenn alle Mitglieder liken',
+      async () => {
+    await createGroup('g15', ['alice', 'bob', 'carol']);
+    // Alice skippt Film 615 - das darf weder diesen noch einen anderen Film
+    // der Gruppe beeinträchtigen.
+    await setSwipe('g15', 'alice', 615, 'skip');
+
+    // Bob und Carol können Film 615 unabhängig von Alice' Skip weiterhin
+    // ganz normal bewerten.
+    await setSwipe('g15', 'bob', 615, 'like');
+    await setSwipe('g15', 'carol', 615, 'dislike');
+    await assertNoMatchAfterSettling('g15', 615);
+
+    // Ein völlig anderer Film, den alle drei Mitglieder liken, matcht
+    // weiterhin normal - Alice' Skip auf Film 615 hat keinerlei Auswirkung
+    // auf die Match-Erkennung für Film 616.
+    await setSwipe('g15', 'alice', 616, 'like');
+    await setSwipe('g15', 'bob', 616, 'like');
+    await setSwipe('g15', 'carol', 616, 'like');
+    const snap = await waitForMatch('g15', 616);
+    assert.equal(snap.exists, true);
+    assert.deepEqual(snap.data().member_uids, ['alice', 'bob', 'carol']);
+
+    // Weiterhin kein Match für den geskippten Film 615.
+    const stillNoMatch = await matchRef('g15', 615).get();
+    assert.equal(stillNoMatch.exists, false);
+  });
 });
