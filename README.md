@@ -4,19 +4,19 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Match-Systemnachricht im Chat**. Profil-, Freundes-, Profilbild-, Gruppen-,
-TMDB-, Swipe- (inkl. Watchlist-Ansicht), Match-, Chat-, Push- und Onboarding-System aus den
-vorherigen Schritten unverändert. Sobald ein Match entsteht, postet die bestehende
-`onMatchCreated`-Cloud-Function jetzt zusätzlich zur Push-Notification eine serverseitige
-System-Nachricht in den Gruppenchat (`type: 'match'` mit `movie_id`), damit das Match auch für
-Mitglieder sichtbar bleibt, die die Push verpassen oder erst später in den Chatverlauf schauen.
-Die Nachricht erscheint zentriert mit TMDB-Poster/Titel des gematchten Films und öffnet beim
-Antippen die Filmdetails.
+Aktueller Schritt: **Globaler Swipe-Tab (zentraler Einstiegspunkt)**. Profil-, Freundes-,
+Profilbild-, Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht), Match-, Chat-, Push- und
+Onboarding-System aus den vorherigen Schritten unverändert. Der globale „Swipe"-Tab
+(`SwipeScreen`, §16 der Master-Spezifikation) war bisher ein reiner Platzhalter und zeigt jetzt
+die Gruppen des Nutzers – analog zum bestehenden `ChatScreen`-Muster. Tippen auf eine Gruppe
+öffnet den echten, bereits vollständig implementierten `GroupSwipeScreen` dieser Gruppe. Jeder
+Swipe bleibt weiterhin zwingend an genau eine Gruppe gebunden (§5/§17.4) – es gibt bewusst keinen
+gruppenlosen, aggregierten oder gruppenübergreifenden Swipe-Kontext, da die Master-Spezifikation
+dafür kein Datenmodell und keine Match-Semantik vorgibt.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-globaler gruppenübergreifender Swipe-Tab (Spezifikation dazu bisher nicht eindeutig), Trailer-
-Button, Boost-Algorithmus, Watchlist entfernen, Super Swipe/Premium, Filmabend-/Terminplanung,
-Werbung.
+Trailer-Button, Boost-Algorithmus, Watchlist entfernen, Super Swipe/Premium,
+Filmabend-/Terminplanung, Werbung.
 
 ## Tech-Stack
 
@@ -183,6 +183,13 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
 
 ## Swipe-Funktion
 
+- **Globaler Einstiegspunkt (`SwipeScreen`, Swipe-Tab der Bottom Navigation):** Zeigt die Gruppen
+  des Nutzers (`myGroupsProvider`, dieselbe Datenquelle wie `GroupsScreen`/`ChatScreen`) als Liste;
+  Tippen öffnet den `GroupSwipeScreen` der jeweiligen Gruppe. Kein gruppenübergreifender
+  Swipe-Modus: Ein Swipe ist laut Datenmodell (§5, §17.4) immer an genau eine `group_id` gebunden,
+  daher gibt es keine Aggregation mehrerer Gruppen in einem gemeinsamen Feed und keinen impliziten
+  „Standard"-Gruppen-Kontext – der Nutzer wählt die Gruppe explizit. Ehrlicher Empty State „Tritt
+  einer Gruppe bei, um dort Filme zu swipen.", wenn der Nutzer in keiner Gruppe ist.
 - **Architektur:** `SwipeRepository` (Firestore-Zugriff auf `groups/{groupId}/swipes`) →
   `SwipeService` (prüft die Mitgliedschaft, bevor überhaupt geschrieben wird – die Firestore
   Rules erzwingen dieselbe Prüfung zusätzlich serverseitig) → `SwipeActionController`
