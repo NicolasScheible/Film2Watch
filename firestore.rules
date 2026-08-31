@@ -67,6 +67,18 @@ service cloud.firestore {
       }
     }
 
+    // Personalisierter Boost-Zustand (§7/§18/§17.4 der Master-Spezifikation:
+    // Genre-Präferenz/Anti-Boost). Wird ausschließlich serverseitig von der
+    // Cloud Function `functions/userPreferences.js` gepflegt (Admin-SDK,
+    // umgeht Rules) - kein Client, auch nicht der Owner selbst, darf dieses
+    // Dokument direkt schreiben (analog zu `groups/{groupId}/matches`, das
+    // aus demselben Grund ebenfalls rein serverseitig entsteht). Nur der
+    // eigene User darf seine eigenen Präferenzen lesen.
+    match /user_preferences/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow write: if false;
+    }
+
     // Freundescode-Eindeutigkeits-Lookup (code -> uid). Jeder authentifizierte
     // User darf prüfen, ob ein Code existiert, aber nur seinen eigenen Code
     // anlegen und niemals fremde Einträge verändern oder löschen.
@@ -192,13 +204,23 @@ service cloud.firestore {
         allow create: if isGroupMember(groupId)
           && request.auth.uid == request.resource.data.uid
           && swipeId == request.resource.data.uid + '_' + string(request.resource.data.movie_id)
-          && request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist'];
+          && request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist']
+          // genre_ids (§7/§18 Boost-Algorithmus: Genre-Präferenz/Anti-Boost)
+          // sind optional (ältere Clients senden sie ggf. nicht), aber falls
+          // vorhanden ausschließlich eine Liste numerischer TMDB-Genre-IDs -
+          // keine vollständigen Filmdaten.
+          && (!('genre_ids' in request.resource.data) || request.resource.data.genre_ids is list);
 
         allow update: if isGroupMember(groupId)
           && request.auth.uid == resource.data.uid
           && request.resource.data.uid == resource.data.uid
           && request.resource.data.movie_id == resource.data.movie_id
           && request.resource.data.created_at == resource.data.created_at
+          // genre_ids ist wie movie_id/created_at nach dem Anlegen
+          // unveränderlich - ein erneutes Bewerten desselben Films ändert
+          // nur die Entscheidung, nie die zum Anlege-Zeitpunkt erfassten
+          // Genres.
+          && request.resource.data.get('genre_ids', null) == resource.data.get('genre_ids', null)
           && request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist'];
 
         // Löschen ist ausschließlich für den eigenen Watchlist-Eintrag

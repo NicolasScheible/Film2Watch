@@ -12,12 +12,34 @@ class SwipeService {
   final SwipeRepository _swipeRepository;
   final GroupRepository _groupRepository;
 
-  Future<void> likeMovie({required String groupId, required String uid, required int movieId}) {
-    return _swipe(groupId: groupId, uid: uid, movieId: movieId, decision: SwipeDecision.like);
+  Future<void> likeMovie({
+    required String groupId,
+    required String uid,
+    required int movieId,
+    List<int> genreIds = const [],
+  }) {
+    return _swipe(
+      groupId: groupId,
+      uid: uid,
+      movieId: movieId,
+      decision: SwipeDecision.like,
+      genreIds: genreIds,
+    );
   }
 
-  Future<void> dislikeMovie({required String groupId, required String uid, required int movieId}) {
-    return _swipe(groupId: groupId, uid: uid, movieId: movieId, decision: SwipeDecision.dislike);
+  Future<void> dislikeMovie({
+    required String groupId,
+    required String uid,
+    required int movieId,
+    List<int> genreIds = const [],
+  }) {
+    return _swipe(
+      groupId: groupId,
+      uid: uid,
+      movieId: movieId,
+      decision: SwipeDecision.dislike,
+      genreIds: genreIds,
+    );
   }
 
   /// Blendet einen Film für [uid] persönlich aus der Warteschlange dieser
@@ -25,8 +47,19 @@ class SwipeService {
   /// als Dislike und beeinflusst damit nie die Match-Erkennung
   /// (`functions/matchEngine.js` prüft ausschließlich `decision == 'like'`)
   /// und nie die Swipes anderer Mitglieder.
-  Future<void> skipMovie({required String groupId, required String uid, required int movieId}) {
-    return _swipe(groupId: groupId, uid: uid, movieId: movieId, decision: SwipeDecision.skip);
+  Future<void> skipMovie({
+    required String groupId,
+    required String uid,
+    required int movieId,
+    List<int> genreIds = const [],
+  }) {
+    return _swipe(
+      groupId: groupId,
+      uid: uid,
+      movieId: movieId,
+      decision: SwipeDecision.skip,
+      genreIds: genreIds,
+    );
   }
 
   /// Setzt einen Film für [uid] persönlich auf "Vielleicht später"
@@ -34,8 +67,19 @@ class SwipeService {
   /// Match-Erkennung (`functions/matchEngine.js` prüft ausschließlich
   /// `decision == 'like'`) und nie die Swipes anderer Mitglieder. Blendet den
   /// Film ebenfalls dauerhaft aus der eigenen Warteschlange dieser Gruppe aus.
-  Future<void> watchlistMovie({required String groupId, required String uid, required int movieId}) {
-    return _swipe(groupId: groupId, uid: uid, movieId: movieId, decision: SwipeDecision.watchlist);
+  Future<void> watchlistMovie({
+    required String groupId,
+    required String uid,
+    required int movieId,
+    List<int> genreIds = const [],
+  }) {
+    return _swipe(
+      groupId: groupId,
+      uid: uid,
+      movieId: movieId,
+      decision: SwipeDecision.watchlist,
+      genreIds: genreIds,
+    );
   }
 
   /// Entfernt [uid]s eigenen Watchlist-Eintrag für [movieId] vollständig -
@@ -66,6 +110,7 @@ class SwipeService {
     required String uid,
     required int movieId,
     required SwipeDecision decision,
+    List<int> genreIds = const [],
   }) async {
     final member = await _groupRepository.getMember(groupId, uid);
     if (member == null) {
@@ -76,6 +121,7 @@ class SwipeService {
       uid: uid,
       movieId: movieId,
       decision: decision,
+      genreIds: genreIds,
     );
   }
 }

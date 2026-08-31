@@ -16,21 +16,29 @@ class SwipeActionController extends AsyncNotifier<void> {
   @override
   Future<void> build() async {}
 
-  Future<void> like(int movieId) => _swipe(movieId, decision: SwipeDecision.like);
+  Future<void> like(int movieId, {List<int> genreIds = const []}) =>
+      _swipe(movieId, decision: SwipeDecision.like, genreIds: genreIds);
 
-  Future<void> dislike(int movieId) => _swipe(movieId, decision: SwipeDecision.dislike);
+  Future<void> dislike(int movieId, {List<int> genreIds = const []}) =>
+      _swipe(movieId, decision: SwipeDecision.dislike, genreIds: genreIds);
 
   /// Blendet den Film nur für den aktuellen User aus der Warteschlange
   /// dieser Gruppe aus - andere Mitglieder sehen und bewerten ihn
   /// unverändert weiter, und es entsteht dadurch nie ein Match.
-  Future<void> skip(int movieId) => _swipe(movieId, decision: SwipeDecision.skip);
+  Future<void> skip(int movieId, {List<int> genreIds = const []}) =>
+      _swipe(movieId, decision: SwipeDecision.skip, genreIds: genreIds);
 
   /// Setzt den Film persönlich auf "Vielleicht später" (Watchlist) - wie
   /// [skip] rein persönlich, kein Einfluss auf andere Mitglieder oder die
   /// Match-Erkennung.
-  Future<void> watchlist(int movieId) => _swipe(movieId, decision: SwipeDecision.watchlist);
+  Future<void> watchlist(int movieId, {List<int> genreIds = const []}) =>
+      _swipe(movieId, decision: SwipeDecision.watchlist, genreIds: genreIds);
 
-  Future<void> _swipe(int movieId, {required SwipeDecision decision}) async {
+  Future<void> _swipe(
+    int movieId, {
+    required SwipeDecision decision,
+    List<int> genreIds = const [],
+  }) async {
     final uid = ref.read(authStateChangesProvider).value?.uid;
     if (uid == null || state.isLoading) return;
 
@@ -39,13 +47,33 @@ class SwipeActionController extends AsyncNotifier<void> {
       final service = ref.read(swipeServiceProvider);
       switch (decision) {
         case SwipeDecision.like:
-          await service.likeMovie(groupId: groupId, uid: uid, movieId: movieId);
+          await service.likeMovie(
+            groupId: groupId,
+            uid: uid,
+            movieId: movieId,
+            genreIds: genreIds,
+          );
         case SwipeDecision.dislike:
-          await service.dislikeMovie(groupId: groupId, uid: uid, movieId: movieId);
+          await service.dislikeMovie(
+            groupId: groupId,
+            uid: uid,
+            movieId: movieId,
+            genreIds: genreIds,
+          );
         case SwipeDecision.skip:
-          await service.skipMovie(groupId: groupId, uid: uid, movieId: movieId);
+          await service.skipMovie(
+            groupId: groupId,
+            uid: uid,
+            movieId: movieId,
+            genreIds: genreIds,
+          );
         case SwipeDecision.watchlist:
-          await service.watchlistMovie(groupId: groupId, uid: uid, movieId: movieId);
+          await service.watchlistMovie(
+            groupId: groupId,
+            uid: uid,
+            movieId: movieId,
+            genreIds: genreIds,
+          );
       }
       await ref
           .read(swipeQueueControllerProvider(groupId).notifier)

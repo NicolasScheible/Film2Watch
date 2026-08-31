@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/movie.dart';
 import '../models/movie_filter.dart';
+import '../models/user_genre_preferences.dart';
 import '../utils/boost.dart';
 import 'auth_provider.dart';
 import 'friend_provider.dart';
@@ -29,6 +30,7 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
   bool _hasMoreTmdbPages = true;
   MovieFilter _filter = MovieFilter.empty;
   Map<int, int> _friendLikeCounts = const {};
+  UserGenrePreferences _genrePreferences = UserGenrePreferences.empty;
 
   @override
   Future<List<Movie>> build() async {
@@ -60,6 +62,12 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
     final friendUids = (await ref.watch(friendUidsProvider.future)).toSet();
     final groupLikes = await ref.read(swipeRepositoryProvider).getGroupLikes(groupId);
     _friendLikeCounts = countFriendLikes(groupLikes: groupLikes, friendUids: friendUids);
+
+    // Genre-Präferenz/Anti-Boost (§7/§18): serverseitig von
+    // `functions/userPreferences.js` gepflegt, hier nur gelesen - global pro
+    // User (nicht pro Gruppe), analog zum Freundes-Boost nur einmal pro
+    // Session-Aufbau geladen.
+    _genrePreferences = await ref.read(userPreferencesRepositoryProvider).getPreferences(uid);
 
     return _fillQueue(const []);
   }
@@ -106,11 +114,17 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
       queue = [...queue, ...freshMovies];
     }
 
-    // §7/§18: "ORDER BY friend_likes DESC, RANDOM()" - sortiert ausschließlich
+    // §7: voller personalisierter Boost-Score (Freundes-Likes, Genre-
+    // Präferenz, Anti-Boost, Bewertung, Zufall) - sortiert ausschließlich
     // innerhalb der bereits gefilterten, deduplizierten, noch nicht
     // bewerteten Kandidaten. Fügt nie einen Film hinzu oder entfernt einen -
     // reine Umordnung.
-    return sortByFriendLikeBoost(queue, _friendLikeCounts);
+    return sortByBoostScore(
+      queue,
+      friendLikeCounts: _friendLikeCounts,
+      topGenres: _genrePreferences.topGenres,
+      dislikedGenres: _genrePreferences.dislikedGenres,
+    );
   }
 
   String _requireUid() {

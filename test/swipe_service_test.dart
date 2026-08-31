@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:film2watch/models/movie_swipe.dart';
 import 'package:film2watch/repositories/group_repository.dart';
@@ -27,6 +28,50 @@ void main() {
       expect(loaded.movieId, 550);
       expect(loaded.decision, SwipeDecision.like);
       expect(loaded.createdAt, createdAt);
+    });
+
+    test('genre_ids ist Teil des Firestore-Mappings, Default ist eine leere Liste', () async {
+      final firestore = FakeFirebaseFirestore();
+      final createdAt = DateTime(2026, 1, 1, 12);
+      final withGenres = MovieSwipe(
+        uid: 'alice',
+        movieId: 551,
+        decision: SwipeDecision.like,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+        genreIds: const [27, 878],
+      );
+      final withoutGenres = MovieSwipe(
+        uid: 'alice',
+        movieId: 552,
+        decision: SwipeDecision.like,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      );
+
+      final ref1 = firestore.collection('groups').doc('g1').collection('swipes').doc('alice_551');
+      await ref1.set(withGenres.toFirestore());
+      final ref2 = firestore.collection('groups').doc('g1').collection('swipes').doc('alice_552');
+      await ref2.set(withoutGenres.toFirestore());
+
+      expect(MovieSwipe.fromFirestore(await ref1.get()).genreIds, [27, 878]);
+      expect(MovieSwipe.fromFirestore(await ref2.get()).genreIds, isEmpty);
+    });
+
+    test('ein Legacy-Dokument ohne genre_ids-Feld wird robust als leere Liste gelesen', () async {
+      final firestore = FakeFirebaseFirestore();
+      final ref = firestore.collection('groups').doc('g1').collection('swipes').doc('alice_553');
+      await ref.set({
+        'uid': 'alice',
+        'movie_id': 553,
+        'decision': 'like',
+        'created_at': Timestamp.now(),
+        'updated_at': Timestamp.now(),
+        // bewusst kein 'genre_ids'-Feld - simuliert ein vor diesem Schritt
+        // angelegtes Dokument.
+      });
+
+      expect(MovieSwipe.fromFirestore(await ref.get()).genreIds, isEmpty);
     });
   });
 
@@ -123,6 +168,43 @@ void main() {
         () => swipeService.skipMovie(groupId: groupId, uid: 'carol', movieId: 561),
         throwsA(isA<GroupActionException>()),
       );
+    });
+
+    test('genre_ids wird beim Anlegen gespeichert (§7/§18 Boost-Algorithmus)', () async {
+      await swipeService.likeMovie(
+        groupId: groupId,
+        uid: 'alice',
+        movieId: 563,
+        genreIds: const [27, 878],
+      );
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 563);
+      expect(swipe!.genreIds, [27, 878]);
+    });
+
+    test('genre_ids bleibt beim erneuten Bewerten desselben Films unverändert', () async {
+      await swipeService.likeMovie(
+        groupId: groupId,
+        uid: 'alice',
+        movieId: 564,
+        genreIds: const [27],
+      );
+      // Ein erneutes Bewerten übergibt bewusst KEINE genre_ids (Default
+      // const []) - simuliert z. B. einen Aufrufer, der die Genres nicht
+      // erneut kennt. Die ursprünglich gespeicherten genre_ids dürfen
+      // trotzdem nicht verschwinden.
+      await swipeService.dislikeMovie(groupId: groupId, uid: 'alice', movieId: 564);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 564);
+      expect(swipe!.decision, SwipeDecision.dislike);
+      expect(swipe.genreIds, [27]);
+    });
+
+    test('ohne genre_ids-Angabe ist die Liste leer (Rückwärtskompatibilität)', () async {
+      await swipeService.likeMovie(groupId: groupId, uid: 'alice', movieId: 565);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 565);
+      expect(swipe!.genreIds, isEmpty);
     });
 
     test('Watchlist speichert eine Entscheidung mit decision == watchlist', () async {

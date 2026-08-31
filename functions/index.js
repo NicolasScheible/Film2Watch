@@ -3,6 +3,7 @@
 const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const { evaluateMatch } = require('./matchEngine');
+const { updateUserGenrePreferences } = require('./userPreferences');
 const { notifyFriendRequest } = require('./notifyFriendRequest');
 const { notifyGroupInvitation } = require('./notifyGroupInvitation');
 const { notifyMatch } = require('./notifyMatch');
@@ -43,6 +44,36 @@ exports.onSwipeWritten = functions.firestore
       functions.logger.error('Match-Auswertung fehlgeschlagen', {
         groupId: context.params.groupId,
         swipeId: context.params.swipeId,
+        error: error.message,
+      });
+    }
+    return null;
+  });
+
+/**
+ * Zweiter, unabhängiger Trigger auf denselben Swipe-Schreibvorgang wie
+ * `onSwipeWritten` (Firestore erlaubt mehrere Functions auf demselben
+ * Dokumentpfad) - hält `user_preferences/{uid}` aktuell (§7/§18/§17.4:
+ * Genre-Präferenz/Anti-Boost). Eigene Function statt in `onSwipeWritten`
+ * verschachtelt, analog zur bestehenden Trennung von Match-Erkennung
+ * (`matchEngine.js`) und Notifications - jede Function hat genau eine
+ * Zuständigkeit. Reagiert auch auf Löschen (z. B. Watchlist-Entfernen) und
+ * Ändern einer Entscheidung, da `updateUserGenrePreferences` die komplette
+ * Historie neu auswertet statt einen Zähler zu inkrementieren.
+ */
+exports.onSwipeWrittenForPreferences = functions.firestore
+  .document('groups/{groupId}/swipes/{swipeId}')
+  .onWrite(async (change, context) => {
+    const data = change.after.exists ? change.after.data() : change.before.data();
+    if (!data || typeof data.uid !== 'string') return null;
+
+    try {
+      await updateUserGenrePreferences({ firestore: admin.firestore(), uid: data.uid });
+    } catch (error) {
+      functions.logger.error('Genre-Präferenz-Aktualisierung fehlgeschlagen', {
+        groupId: context.params.groupId,
+        swipeId: context.params.swipeId,
+        uid: data.uid,
         error: error.message,
       });
     }

@@ -369,4 +369,150 @@ describe('groups/{groupId}/swipes/{swipeId}', () => {
       }),
     );
   });
+
+  // §7/§18 Boost-Algorithmus: genre_ids (TMDB-Genre-IDs zum Zeitpunkt des
+  // Swipes) sind optional, aber wenn vorhanden typgeprüft und nach dem
+  // Anlegen unveränderlich - Grundlage für die serverseitige Genre-
+  // Präferenz/Anti-Boost-Auswertung (functions/userPreferences.js).
+  it('erlaubt einen Swipe mit genre_ids', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/bob_900').set({
+        uid: 'bob',
+        movie_id: 900,
+        decision: 'like',
+        genre_ids: [27, 878],
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('erlaubt einen Swipe weiterhin auch ohne genre_ids (Rückwärtskompatibilität)', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/bob_901').set({
+        uid: 'bob',
+        movie_id: 901,
+        decision: 'like',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('lehnt einen Swipe ab, dessen genre_ids kein Array ist', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/bob_902').set({
+        uid: 'bob',
+        movie_id: 902,
+        decision: 'like',
+        genre_ids: 'action',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('lehnt es ab, dass genre_ids beim Update nachträglich verändert wird', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/bob_903').set({
+        uid: 'bob',
+        movie_id: 903,
+        decision: 'like',
+        genre_ids: [27],
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/bob_903').update({
+        decision: 'dislike',
+        genre_ids: [28],
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('erlaubt ein Update, das genre_ids unverändert lässt', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/bob_904').set({
+        uid: 'bob',
+        movie_id: 904,
+        decision: 'like',
+        genre_ids: [27],
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/bob_904').update({
+        decision: 'dislike',
+        genre_ids: [27],
+        updated_at: now(),
+      }),
+    );
+  });
+});
+
+// Personalisierter Boost-Zustand (§7/§18/§17.4): ausschließlich serverseitig
+// beschrieben, nur der eigene User darf lesen.
+describe('user_preferences/{userId}', () => {
+  before(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('user_preferences/alice').set({
+        genre_affinity: { '27': 1.5 },
+        disliked_genres: {},
+        top_genres: [27],
+        last_updated: now(),
+      });
+    });
+  });
+
+  it('erlaubt es dem User, die eigenen Präferenzen zu lesen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertSucceeds(db.doc('user_preferences/alice').get());
+  });
+
+  it('lehnt es ab, dass ein anderer Nutzer fremde Präferenzen liest', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(db.doc('user_preferences/alice').get());
+  });
+
+  it('lehnt unauthentifiziertes Lesen ab', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(db.doc('user_preferences/alice').get());
+  });
+
+  it('lehnt es ab, dass der Owner selbst seine Präferenzen schreibt (nur serverseitig)', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(
+      db.doc('user_preferences/alice').set({
+        genre_affinity: { '99': 100 },
+        disliked_genres: {},
+        top_genres: [99],
+        last_updated: now(),
+      }),
+    );
+  });
+
+  it('lehnt es ab, dass ein fremder Nutzer ein Präferenzen-Dokument für einen anderen User anlegt', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('user_preferences/carol').set({
+        genre_affinity: {},
+        disliked_genres: {},
+        top_genres: [],
+        last_updated: now(),
+      }),
+    );
+  });
+
+  it('lehnt es ab, dass der Owner selbst seine Präferenzen löscht', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(db.doc('user_preferences/alice').delete());
+  });
 });

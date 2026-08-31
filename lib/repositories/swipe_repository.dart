@@ -26,12 +26,16 @@ class SwipeRepository {
   }
 
   /// Legt die Entscheidung an oder aktualisiert eine bestehende - niemals ein
-  /// zweites Dokument für dasselbe (uid, movieId)-Paar.
+  /// zweites Dokument für dasselbe (uid, movieId)-Paar. [genreIds] wird nur
+  /// beim erstmaligen Anlegen gespeichert (wie `created_at` danach
+  /// unveränderlich, siehe Firestore Rules) - ein erneutes Bewerten
+  /// desselben Films ändert nur `decision`/`updated_at`.
   Future<void> setSwipe({
     required String groupId,
     required String uid,
     required int movieId,
     required SwipeDecision decision,
+    List<int> genreIds = const [],
   }) async {
     final ref = _swipes(groupId).doc(_swipeId(uid, movieId));
     final existing = await ref.get();
@@ -51,6 +55,7 @@ class SwipeRepository {
       decision: decision,
       createdAt: now,
       updatedAt: now,
+      genreIds: genreIds,
     );
     await ref.set(swipe.toFirestore());
   }

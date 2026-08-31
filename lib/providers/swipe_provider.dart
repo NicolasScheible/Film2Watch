@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/movie_swipe.dart';
 import '../repositories/swipe_repository.dart';
+import '../repositories/user_preferences_repository.dart';
 import '../services/swipe_service.dart';
 import 'auth_provider.dart';
 import 'group_provider.dart';
@@ -12,6 +13,13 @@ final swipeRepositoryProvider = Provider<SwipeRepository>((ref) {
 
 final swipeServiceProvider = Provider<SwipeService>((ref) {
   return SwipeService(ref.watch(swipeRepositoryProvider), ref.watch(groupRepositoryProvider));
+});
+
+/// Serverseitig gepflegte Genre-Präferenzen des aktuellen Users (§7/§18/
+/// §17.4), Grundlage für den Genre-Bonus und Anti-Boost im Boost-Score
+/// (`lib/utils/boost.dart`).
+final userPreferencesRepositoryProvider = Provider<UserPreferencesRepository>((ref) {
+  return UserPreferencesRepository(ref.watch(firestoreProvider));
 });
 
 /// Ein Film, den mindestens ein aktuelles Mitglied der Gruppe auf die
