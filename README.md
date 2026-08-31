@@ -4,22 +4,26 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Boost-Algorithmus (voll, §7)**. Profil-, Freundes-, Profilbild-, Gruppen-,
-TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button und Watchlist-Eintrag
-entfernen), Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den vorherigen
-Schritten unverändert. Der bisherige MVP-Boost (nur `friend_likes`) ist zum vollen, additiven
-Score-System aus §7 erweitert: Freundes-Likes, persönliche Genre-Präferenz, Anti-Boost bei
-Dislikes, Bewertung und eine Zufallskomponente fließen jetzt gemeinsam in die Sortierung der
-Swipe-Warteschlange ein. Genre-Präferenz/Anti-Boost werden serverseitig gepflegt
-(`user_preferences/{uid}`, neue Cloud Function `onSwipeWrittenForPreferences`) - siehe
-„Boost-Algorithmus" unter „Swipe-Funktion" unten für die vollständige Herleitung, inklusive der mit
-dem Produktverantwortlichen abgestimmten Werte, wo die Master-Spezifikation keine konkrete Zahl
-vorgibt (Zeitverfall, „oft geliked"-Schwelle, Hauptdarsteller-Anti-Boost vorerst zurückgestellt).
+Aktueller Schritt: **Super Swipe (§6/§15)**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-,
+Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button, Watchlist-Eintrag entfernen und
+vollem Boost-Algorithmus), Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den
+vorherigen Schritten unverändert. Der fünfte Swipe-Typ „Super Swipe" (Premium-Feature) ist jetzt als
+eigene `SwipeDecision` implementiert - zählt für die Match-Erkennung wie ein Like, hat aber (noch)
+keinen eigenen Boost-Bonus, da die Master-Spezifikation dafür keinen Wert nennt. Rein binäres
+Premium-Gating (kein Kontingent/Zähler), serverseitig über eine neue `premium_status/{uid}`-
+Collection durchgesetzt - siehe „Super Swipe" unter „Swipe-Funktion" unten für die vollständige
+Herleitung und die mit dem Produktverantwortlichen abgestimmten offenen Punkte.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
 Anti-Boost über „gleicher Hauptdarsteller" (erfordert eine neue TMDB-Credits-Integration, bewusst
-zurückgestellt - siehe „Boost-Algorithmus" unten), Super Swipe/Premium (inkl.
-Plattform-Mehrfachauswahl), Filmabend-/Terminplanung, Werbung.
+zurückgestellt - siehe „Boost-Algorithmus" unten), Boost-Bonus für Super Swipe (Master-Spezifikation
+nennt keinen Wert), **echte Premium-Aktivierung** (RevenueCat/App-Store-/Play-Store-Abo - benötigt
+externe Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; nur das
+Datenmodell/Gating ist bereits fertig), sowie die übrigen Premium-Vorteile aus §15 (werbefrei,
+erweiterte Filter, unbegrenzte Gruppen, Statistiken), Filmabend-/Terminplanung, Werbung. Ebenfalls
+noch offen: eine UI/Geste, mit der ein Nutzer einen Super Swipe tatsächlich auslöst - die
+Master-Spezifikation beschreibt dafür keine konkrete Interaktion (die vier bestehenden
+Wisch-Richtungen sind bereits belegt).
 
 ## Tech-Stack
 
@@ -165,13 +169,15 @@ tatsächliches Gruppenbild in der App erscheinen.
 
 | Collection | Zweck | Zugriff |
 |---|---|---|
-| `groups/{groupId}/swipes/{uid}_{movieId}` | Like/Dislike/Skip/Watchlist-Entscheidung eines Mitglieds zu einem Film (`uid, movie_id, decision, created_at, updated_at`, optional `genre_ids`) | lesbar für alle Mitglieder der Gruppe, schreibbar nur für den eigenen Swipe; löschbar nur für den eigenen Swipe, wenn `decision == 'watchlist'` (Watchlist-Eintrag entfernen) – Like/Dislike/Skip bleiben unlöschbar |
+| `groups/{groupId}/swipes/{uid}_{movieId}` | Like/Dislike/Skip/Watchlist/Super-Swipe-Entscheidung eines Mitglieds zu einem Film (`uid, movie_id, decision, created_at, updated_at`, optional `genre_ids`) | lesbar für alle Mitglieder der Gruppe, schreibbar nur für den eigenen Swipe (`decision == 'super'` zusätzlich nur mit Premium-Status); löschbar nur für den eigenen Swipe, wenn `decision == 'watchlist'` (Watchlist-Eintrag entfernen) – Like/Dislike/Skip/Super bleiben unlöschbar |
 | `user_preferences/{uid}` | Personalisierter Boost-Zustand für den Genre-Bonus/Anti-Boost (§7/§18/§17.4): `genre_affinity`, `disliked_genres`, `top_genres`, `last_updated` | lesbar nur für den eigenen User; schreibbar für niemanden clientseitig – ausschließlich die Cloud Function `functions/userPreferences.js` (Admin-SDK) schreibt |
+| `premium_status/{uid}` | Premium-Status für Super Swipe und weitere §15-Vorteile (§6/§15): `is_premium` | lesbar nur für den eigenen User; schreibbar für niemanden clientseitig – die tatsächliche Aktivierung (RevenueCat/Store-Abo, §18) ist offene externe Konfiguration, nicht Teil dieses Repositories |
 
 Es wird **keine** vollständige TMDB-JSON-Antwort in Firestore gespeichert – nur die
-Entscheidung selbst (`movie_id` + `like`/`dislike`/`skip`/`watchlist`) und, für den Boost-Algorithmus,
-die TMDB-Genre-IDs des Films zum Swipe-Zeitpunkt (`genre_ids`, nur numerische IDs). TMDB bleibt für
-alle eigentlichen Filmdaten (Titel, Poster, Beschreibung, ...) die alleinige Quelle.
+Entscheidung selbst (`movie_id` + `like`/`dislike`/`skip`/`watchlist`/`super`) und, für den
+Boost-Algorithmus, die TMDB-Genre-IDs des Films zum Swipe-Zeitpunkt (`genre_ids`, nur numerische
+IDs). TMDB bleibt für alle eigentlichen Filmdaten (Titel, Poster, Beschreibung, ...) die alleinige
+Quelle.
 
 **Deterministische Dokument-ID `{uid}_{movieId}`:** Ein erneutes Bewerten desselben Films durch
 denselben User in derselben Gruppe aktualisiert die bestehende Entscheidung (`update`), statt ein
@@ -364,6 +370,54 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   Rolle wie `movie_id`/`created_at`. Ein Nutzer kann über den Boost niemals selbst einen Match
   erzeugen und niemals Daten einer fremden Gruppe oder eines fremden Users in die eigene Berechnung
   einschleusen.
+
+### Super Swipe (§6/§15)
+
+- **Exakte Vorgabe:** §6 (Swipe-System-Tabelle): „**Super Swipe** (Premium) | Besondere Empfehlung |
+  Signalisiert der Gruppe: ‚Den will ich unbedingt sehen!' – erhöht Boost zusätzlich." §15 (Premium
+  Abo) listet „Super Swipe" als eine der Premium-Vorteile. §17.4 sieht `swipe_type` bereits als
+  5-wertiges Enum vor (`'like'|'dislike'|'skip'|'watchlist'|'super'`) – ein eigener, gleichrangiger
+  Entscheidungstyp, kein Zusatz-Flag auf einem Like.
+- **Mit dem Product Owner abgestimmte Punkte** (die Master-Spezifikation beantwortet diese nicht
+  eindeutig – erfunden wurde hier bewusst nichts, sondern vor der Implementierung explizit
+  nachgefragt):
+  - **Boost-Bonus:** §6 nennt keinen Wert für „erhöht Boost zusätzlich" – dieser Teil ist **bewusst
+    zurückgestellt**. Ein Super Swipe hat aktuell keinen Effekt auf `computeBoostScore`
+    (`lib/utils/boost.dart`, unverändert).
+  - **Match-Wirkung:** §8 definiert ein Match wörtlich nur über „Like". Ein Super Swipe **zählt wie
+    ein Like** für die Match-Bedingung (`functions/matchEngine.js`: `decision === 'like' ||
+    decision === 'super'`) – alle Mitglieder müssen weiterhin zugestimmt haben (like oder super),
+    ein einzelner Super Swipe erzeugt für sich allein keinen Match.
+  - **Kontingent:** kein Zähler, keine Reset-Logik – rein binäres Premium-Gating. Premium-Nutzer
+    können Super Swipe beliebig oft verwenden, Free-Nutzer gar nicht (0). Die Master-Spezifikation
+    nennt an keiner Stelle eine konkrete Zahl.
+  - **Premium-Aktivierung:** §18 nennt RevenueCat für die Abo-Verwaltung, aber ein echter Kaufweg
+    (App-Store-/Play-Store-Produkte, RevenueCat-SDK/-Account) existiert in dieser Umgebung nicht und
+    ist nicht Teil dieses Schritts. Implementiert ist ausschließlich die **Lese-/Gating-Seite**
+    (`PremiumRepository`, Firestore Rules) – analog zu Google/Apple Sign-In bleibt die tatsächliche
+    Aktivierung offene externe Konfiguration.
+- **Architektur:** `SwipeService.superSwipeMovie()` prüft `PremiumRepository.isPremium(uid)`, bevor
+  überhaupt geschrieben wird (die Firestore Rules erzwingen dieselbe Prüfung serverseitig zusätzlich
+  über `isPremium()`, niemals nur clientseitig vertraut) und delegiert dann an denselben
+  `SwipeRepository.setSwipe()`-Pfad wie alle anderen Entscheidungen – keine zweite
+  Speicher-Infrastruktur. `SwipeActionController.superSwipe()` existiert als vollständige,
+  getestete Controller-Methode; **noch keine UI/Geste ruft sie auf** (siehe „Noch nicht
+  implementiert" oben – die Master-Spezifikation beschreibt keine Interaktion dafür, die vier
+  Wisch-Richtungen sind bereits belegt, ein Erfinden einer eigenen Geste war nicht Teil dieses
+  Schritts).
+- **Datenmodell:** `super` als fünfter, gleichrangiger `decision`-Wert auf
+  `groups/{groupId}/swipes/{uid}_{movieId}` (exakt der in §17.4 vorgegebene String – `super` ist ein
+  reserviertes Dart-Schlüsselwort, daher intern `SwipeDecision.superSwipe` mit einer expliziten
+  `firestoreValue`-Zuordnung statt eines blinden `.name`). Neue Collection `premium_status/{uid}`
+  (`is_premium: bool`).
+- **Security:** `premium_status/{userId}`: nur der eigene User darf lesen, **niemand** darf
+  clientseitig schreiben (auch nicht der Owner selbst) – analog zu `user_preferences`/`matches`.
+  Firestore Rules erlauben `decision == 'super'` beim Anlegen/Aktualisieren eines Swipes
+  ausschließlich, wenn `isPremium(request.auth.uid)` (ein serverseitiger `get()`-Check auf
+  `premium_status/{uid}`) erfüllt ist – ein Client kann weder sein eigenes Kontingent noch seinen
+  Premium-Status fälschen, und der Premium-Status eines anderen Users hat keinen Einfluss auf die
+  eigene Berechtigung. Match-Erkennung bleibt atomar/idempotent (unveränderte Transaktion in
+  `evaluateMatch`) – ein Super Swipe kann sie nicht umgehen oder doppelt auslösen.
 
 ## Match-System
 

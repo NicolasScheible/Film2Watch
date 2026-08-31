@@ -49,6 +49,10 @@ before(async () => {
       created_at: now(),
       updated_at: now(),
     });
+    // alice ist Premium, bob nicht - Grundlage für die Super-Swipe-Tests
+    // (§6/§15). bob bleibt bewusst ohne premium_status-Dokument (Normalfall
+    // für einen Free-User).
+    await db.doc('premium_status/alice').set({ is_premium: true });
   });
 });
 
@@ -456,6 +460,75 @@ describe('groups/{groupId}/swipes/{swipeId}', () => {
       }),
     );
   });
+
+  // Super Swipe (§6/§15, Premium-Feature) - serverseitig über isPremium()
+  // erzwungen, niemals nur clientseitig geprüft. alice ist laut Setup
+  // Premium, bob nicht (siehe premium_status/{userId} weiter unten für die
+  // Regeln des Dokuments selbst).
+  it('erlaubt einem Premium-Mitglied, einen Super Swipe anzulegen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/alice_910').set({
+        uid: 'alice',
+        movie_id: 910,
+        decision: 'super',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('lehnt einen Super Swipe von einem Nicht-Premium-Mitglied ab', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/bob_911').set({
+        uid: 'bob',
+        movie_id: 911,
+        decision: 'super',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('lehnt es ab, dass ein Nicht-Mitglied trotz Premium einen Super Swipe anlegt', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('premium_status/carol').set({ is_premium: true });
+    });
+    const db = testEnv.authenticatedContext('carol').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/carol_912').set({
+        uid: 'carol',
+        movie_id: 912,
+        decision: 'super',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('lehnt es ab, dass ein Nicht-Premium-Mitglied einen bestehenden Swipe zu einem Super Swipe aktualisiert', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/bob_200').update({ decision: 'super', updated_at: now() }),
+    );
+  });
+
+  it('erlaubt es einem Premium-Mitglied, einen bestehenden Swipe zu einem Super Swipe zu aktualisieren', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/alice_913').set({
+        uid: 'alice',
+        movie_id: 913,
+        decision: 'like',
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/alice_913').update({ decision: 'super', updated_at: now() }),
+    );
+  });
 });
 
 // Personalisierter Boost-Zustand (§7/§18/§17.4): ausschließlich serverseitig
@@ -514,5 +587,51 @@ describe('user_preferences/{userId}', () => {
   it('lehnt es ab, dass der Owner selbst seine Präferenzen löscht', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertFails(db.doc('user_preferences/alice').delete());
+  });
+});
+
+// Premium-Status (§15, Voraussetzung für Super Swipe): ausschließlich
+// serverseitig beschrieben, nur der eigene User darf lesen - kein Client
+// darf sich selbst Premium-Rechte einräumen.
+describe('premium_status/{userId}', () => {
+  before(async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('premium_status/dave').set({ is_premium: true });
+    });
+  });
+
+  it('erlaubt es dem User, den eigenen Premium-Status zu lesen', async () => {
+    const db = testEnv.authenticatedContext('dave').firestore();
+    await assertSucceeds(db.doc('premium_status/dave').get());
+  });
+
+  it('lehnt es ab, dass ein anderer Nutzer einen fremden Premium-Status liest', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(db.doc('premium_status/dave').get());
+  });
+
+  it('lehnt unauthentifiziertes Lesen ab', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(db.doc('premium_status/dave').get());
+  });
+
+  it('lehnt es ab, dass sich der Owner selbst Premium-Status einräumt (nur serverseitig)', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(db.doc('premium_status/bob').set({ is_premium: true }));
+  });
+
+  it('lehnt es ab, dass ein Nutzer den Premium-Status eines anderen Users setzt', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(db.doc('premium_status/carol').set({ is_premium: true }));
+  });
+
+  it('lehnt es ab, dass der Owner seinen eigenen Premium-Status aktualisiert', async () => {
+    const db = testEnv.authenticatedContext('dave').firestore();
+    await assertFails(db.doc('premium_status/dave').update({ is_premium: false }));
+  });
+
+  it('lehnt es ab, dass der Owner seinen eigenen Premium-Status löscht', async () => {
+    const db = testEnv.authenticatedContext('dave').firestore();
+    await assertFails(db.doc('premium_status/dave').delete());
   });
 });

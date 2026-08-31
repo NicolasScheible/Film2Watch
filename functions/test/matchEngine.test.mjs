@@ -349,4 +349,47 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
     assert.equal(snap.exists, true);
     assert.deepEqual(snap.data().member_uids, ['alice', 'bob']);
   });
+
+  // Super Swipe (§6/§15, Premium-Feature): "zählt wie ein Like" für die
+  // Match-Bedingung (mit dem Produktverantwortlichen abgestimmt, §8 der
+  // Master-Spezifikation nennt wörtlich nur "Like"). Diese Tests rufen
+  // `evaluateMatch` über echte Swipe-Writes auf und ignorieren bewusst das
+  // Premium-Gating der Firestore Rules (Admin-SDK umgeht Rules) - die
+  // Match-Engine selbst kennt/prüft keine Premium-Berechtigung, das ist
+  // ausschließlich Aufgabe der Rules/des SwipeService beim Anlegen.
+  it('21. 2 Mitglieder, beide Super Swipe -> Match (Super Swipe zählt wie Like)', async () => {
+    await createGroup('g21', ['alice', 'bob']);
+    await setSwipe('g21', 'alice', 630, 'super');
+    await setSwipe('g21', 'bob', 630, 'super');
+
+    const snap = await waitForMatch('g21', 630);
+    assert.equal(snap.exists, true);
+    assert.deepEqual(snap.data().member_uids, ['alice', 'bob']);
+  });
+
+  it('22. eine Mischung aus Like und Super Swipe führt ebenfalls zum Match', async () => {
+    await createGroup('g22', ['alice', 'bob']);
+    await setSwipe('g22', 'alice', 631, 'like');
+    await setSwipe('g22', 'bob', 631, 'super');
+
+    const snap = await waitForMatch('g22', 631);
+    assert.equal(snap.exists, true);
+    assert.deepEqual(snap.data().member_uids, ['alice', 'bob']);
+  });
+
+  it('23. Super Swipe eines einzelnen Mitglieds erzeugt allein noch keinen Match (weiterhin alle Mitglieder nötig)',
+      async () => {
+    await createGroup('g23', ['alice', 'bob']);
+    await setSwipe('g23', 'alice', 632, 'super');
+
+    await assertNoMatchAfterSettling('g23', 632);
+  });
+
+  it('24. Super Swipe + Dislike eines anderen Mitglieds erzeugt keinen Match', async () => {
+    await createGroup('g24', ['alice', 'bob']);
+    await setSwipe('g24', 'alice', 633, 'super');
+    await setSwipe('g24', 'bob', 633, 'dislike');
+
+    await assertNoMatchAfterSettling('g24', 633);
+  });
 });

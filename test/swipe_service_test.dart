@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:film2watch/models/movie_swipe.dart';
 import 'package:film2watch/repositories/group_repository.dart';
+import 'package:film2watch/repositories/premium_repository.dart';
 import 'package:film2watch/repositories/swipe_repository.dart';
 import 'package:film2watch/services/swipe_service.dart';
 import 'package:film2watch/utils/group_exceptions.dart';
@@ -79,6 +80,7 @@ void main() {
     late FakeFirebaseFirestore firestore;
     late GroupRepository groupRepository;
     late SwipeRepository swipeRepository;
+    late PremiumRepository premiumRepository;
     late SwipeService swipeService;
     late String groupId;
 
@@ -86,7 +88,8 @@ void main() {
       firestore = FakeFirebaseFirestore();
       groupRepository = GroupRepository(firestore);
       swipeRepository = SwipeRepository(firestore);
-      swipeService = SwipeService(swipeRepository, groupRepository);
+      premiumRepository = PremiumRepository(firestore);
+      swipeService = SwipeService(swipeRepository, groupRepository, premiumRepository);
 
       final group = await groupRepository.createGroup(name: 'Filmabend', creatorUid: 'alice');
       groupId = group.id;
@@ -327,6 +330,88 @@ void main() {
         () => swipeService.removeFromWatchlist(groupId: groupId, uid: 'carol', movieId: 705),
         throwsA(isA<GroupActionException>()),
       );
+    });
+
+    // Super Swipe (§6/§15, Premium-Feature) - rein binäres Gating, kein
+    // Kontingent (mit dem Produktverantwortlichen abgestimmt).
+    test('Premium-User kann einen Film super-swipen', () async {
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': true});
+
+      await swipeService.superSwipeMovie(groupId: groupId, uid: 'alice', movieId: 800);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 800);
+      expect(swipe!.decision, SwipeDecision.superSwipe);
+    });
+
+    test('super-swipe wird als "super" in Firestore gespeichert (§17.4-Schema)', () async {
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': true});
+
+      await swipeService.superSwipeMovie(groupId: groupId, uid: 'alice', movieId: 801);
+
+      final doc = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .doc('alice_801')
+          .get();
+      expect(doc.data()!['decision'], 'super');
+    });
+
+    test('ein Free-User (kein premium_status-Dokument) kann nicht super-swipen', () async {
+      expect(
+        () => swipeService.superSwipeMovie(groupId: groupId, uid: 'alice', movieId: 802),
+        throwsA(isA<GroupActionException>()),
+      );
+    });
+
+    test('ein User mit is_premium == false kann nicht super-swipen', () async {
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': false});
+
+      expect(
+        () => swipeService.superSwipeMovie(groupId: groupId, uid: 'alice', movieId: 803),
+        throwsA(isA<GroupActionException>()),
+      );
+    });
+
+    test('der Premium-Status eines anderen Users macht einen Free-User nicht selbst premium', () async {
+      await firestore.collection('premium_status').doc('bob').set({'is_premium': true});
+
+      expect(
+        () => swipeService.superSwipeMovie(groupId: groupId, uid: 'alice', movieId: 804),
+        throwsA(isA<GroupActionException>()),
+      );
+    });
+
+    test('super-swipen durch ein Nicht-Mitglied schlägt fehl, auch mit Premium', () async {
+      await firestore.collection('premium_status').doc('carol').set({'is_premium': true});
+
+      expect(
+        () => swipeService.superSwipeMovie(groupId: groupId, uid: 'carol', movieId: 805),
+        throwsA(isA<GroupActionException>()),
+      );
+    });
+
+    test('super-swiped Film wird von getSwipedMovieIds erkannt (wird aus der Warteschlange ausgeblendet)',
+        () async {
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': true});
+      await swipeService.superSwipeMovie(groupId: groupId, uid: 'alice', movieId: 806);
+
+      final swipedIds = await swipeRepository.getSwipedMovieIds(groupId: groupId, uid: 'alice');
+      expect(swipedIds, contains(806));
+    });
+
+    test('bereits erneutes Super-Swipen desselben Films erzeugt kein zweites Dokument (Idempotenz)', () async {
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': true});
+      await swipeService.superSwipeMovie(groupId: groupId, uid: 'alice', movieId: 807);
+      await swipeService.superSwipeMovie(groupId: groupId, uid: 'alice', movieId: 807);
+
+      final snapshot = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .where('movie_id', isEqualTo: 807)
+          .get();
+      expect(snapshot.docs, hasLength(1));
     });
 
     test('bereits bewerteter Film wird erkannt', () async {

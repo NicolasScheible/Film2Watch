@@ -6,6 +6,7 @@ import 'package:film2watch/providers/auth_provider.dart';
 import 'package:film2watch/providers/swipe_provider.dart';
 import 'package:film2watch/providers/tmdb_provider.dart';
 import 'package:film2watch/repositories/group_repository.dart';
+import 'package:film2watch/repositories/premium_repository.dart';
 import 'package:film2watch/repositories/swipe_repository.dart';
 import 'package:film2watch/screens/groups/group_detail_screen.dart';
 import 'package:film2watch/screens/movies/movie_detail_screen.dart';
@@ -22,7 +23,7 @@ import 'package:http/testing.dart';
 /// eines laufenden Löschvorgangs deterministisch beobachten zu können
 /// (analog zum `_DelayedChatService`-Muster in `chat_ui_test.dart`).
 class _DelayedSwipeService extends SwipeService {
-  _DelayedSwipeService(super.swipeRepository, super.groupRepository);
+  _DelayedSwipeService(super.swipeRepository, super.groupRepository, super.premiumRepository);
 
   @override
   Future<void> removeFromWatchlist({
@@ -294,6 +295,7 @@ void main() {
       final delayedService = _DelayedSwipeService(
         SwipeRepository(firestore),
         GroupRepository(firestore),
+        PremiumRepository(firestore),
       );
 
       await tester.pumpWidget(

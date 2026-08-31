@@ -26,6 +26,16 @@ service cloud.firestore {
       return isGroupMember(groupId) && groupMemberRole(groupId) == 'admin';
     }
 
+    // §15/§6: "Super Swipe" ist ein Premium-Feature. Serverseitige,
+    // manipulationssichere Prüfung des Premium-Status - niemals dem Client
+    // vertrauen. `premium_status/{uid}` ist ausschließlich serverseitig
+    // beschreibbar (siehe die Collection weiter unten), ein fehlendes
+    // Dokument bedeutet "kein Premium" (Normalfall für einen Free-User).
+    function isPremium(uid) {
+      return exists(/databases/$(database)/documents/premium_status/$(uid))
+        && get(/databases/$(database)/documents/premium_status/$(uid)).data.is_premium == true;
+    }
+
     // Privates Profil (u. a. E-Mail). Nur der Owner darf lesen/schreiben.
     // uid, email, friend_code und created_at dürfen nach dem Anlegen nie
     // mehr verändert werden (auch nicht vom Owner selbst).
@@ -75,6 +85,17 @@ service cloud.firestore {
     // aus demselben Grund ebenfalls rein serverseitig entsteht). Nur der
     // eigene User darf seine eigenen Präferenzen lesen.
     match /user_preferences/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // Premium-Status (§15: Premium Abo, Voraussetzung für Super Swipe).
+    // Genau wie user_preferences ausschließlich serverseitig beschreibbar -
+    // der tatsächliche Kaufweg (RevenueCat/App-Store/Play-Store, §18) ist
+    // nicht Teil dieses Schritts und bleibt offene externe Konfiguration;
+    // kein Client (auch nicht der Owner selbst) darf sich hier jemals selbst
+    // Premium-Rechte einräumen.
+    match /premium_status/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
       allow write: if false;
     }
@@ -187,13 +208,17 @@ service cloud.firestore {
         allow delete: if isSignedIn() && (request.auth.uid == memberUid || isGroupAdmin(groupId));
       }
 
-      // Swipe-Entscheidungen (like/dislike/skip/watchlist) pro Mitglied und
-      // Film. "skip" ("Vielleicht später", runter) und "watchlist"
-      // ("Vielleicht später", hoch) sind beide rein persönlich: sie blenden
-      // den Film nur für den schreibenden User aus (SwipeQueueController)
-      // und zählen in der Match-Erkennung (functions/matchEngine.js) nie als
-      // 'like' - technisch identisch zu 'dislike' behandelt, nur mit
-      // anderer fachlicher Bedeutung. Dokument-ID ist deterministisch
+      // Swipe-Entscheidungen (like/dislike/skip/watchlist/super) pro
+      // Mitglied und Film. "skip" ("Vielleicht später", runter) und
+      // "watchlist" ("Vielleicht später", hoch) sind beide rein persönlich:
+      // sie blenden den Film nur für den schreibenden User aus
+      // (SwipeQueueController) und zählen in der Match-Erkennung
+      // (functions/matchEngine.js) nie als 'like' - technisch identisch zu
+      // 'dislike' behandelt, nur mit anderer fachlicher Bedeutung. "super"
+      // (§6/§15, Premium-Feature "Super Swipe") zählt für die Match-
+      // Erkennung wie 'like', ist aber ausschließlich für Premium-Nutzer
+      // anlegbar - serverseitig über isPremium() erzwungen, niemals nur
+      // clientseitig geprüft. Dokument-ID ist deterministisch
       // "{uid}_{movieId}" - ein erneutes Bewerten desselben Films
       // aktualisiert die bestehende Entscheidung statt ein zweites Dokument
       // zu erzeugen. Lesbar für alle Mitglieder (spätere Match-Auswertung
@@ -204,7 +229,8 @@ service cloud.firestore {
         allow create: if isGroupMember(groupId)
           && request.auth.uid == request.resource.data.uid
           && swipeId == request.resource.data.uid + '_' + string(request.resource.data.movie_id)
-          && request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist']
+          && (request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist']
+            || (request.resource.data.decision == 'super' && isPremium(request.auth.uid)))
           // genre_ids (§7/§18 Boost-Algorithmus: Genre-Präferenz/Anti-Boost)
           // sind optional (ältere Clients senden sie ggf. nicht), aber falls
           // vorhanden ausschließlich eine Liste numerischer TMDB-Genre-IDs -
@@ -221,7 +247,8 @@ service cloud.firestore {
           // nur die Entscheidung, nie die zum Anlege-Zeitpunkt erfassten
           // Genres.
           && request.resource.data.get('genre_ids', null) == resource.data.get('genre_ids', null)
-          && request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist'];
+          && (request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist']
+            || (request.resource.data.decision == 'super' && isPremium(request.auth.uid)));
 
         // Löschen ist ausschließlich für den eigenen Watchlist-Eintrag
         // erlaubt ("Vielleicht später" wieder entfernen) - Like/Dislike/Skip

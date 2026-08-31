@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/movie_swipe.dart';
+import '../repositories/premium_repository.dart';
 import '../repositories/swipe_repository.dart';
 import '../repositories/user_preferences_repository.dart';
 import '../services/swipe_service.dart';
@@ -11,8 +12,18 @@ final swipeRepositoryProvider = Provider<SwipeRepository>((ref) {
   return SwipeRepository(ref.watch(firestoreProvider));
 });
 
+/// Serverseitig gepflegter Premium-Status des aktuellen Users (§15) -
+/// ausschließlich lesend, siehe `PremiumRepository`.
+final premiumRepositoryProvider = Provider<PremiumRepository>((ref) {
+  return PremiumRepository(ref.watch(firestoreProvider));
+});
+
 final swipeServiceProvider = Provider<SwipeService>((ref) {
-  return SwipeService(ref.watch(swipeRepositoryProvider), ref.watch(groupRepositoryProvider));
+  return SwipeService(
+    ref.watch(swipeRepositoryProvider),
+    ref.watch(groupRepositoryProvider),
+    ref.watch(premiumRepositoryProvider),
+  );
 });
 
 /// Serverseitig gepflegte Genre-Präferenzen des aktuellen Users (§7/§18/

@@ -4,9 +4,25 @@ enum SwipeDecision {
   like,
   dislike,
   skip,
-  watchlist;
+  watchlist,
+
+  /// "Super Swipe" (§6/§15 der Master-Spezifikation, Premium-Feature):
+  /// "Signalisiert der Gruppe: 'Den will ich unbedingt sehen!'". Zählt für
+  /// die Match-Erkennung wie ein Like (`functions/matchEngine.js`), aber
+  /// ohne eigenen Boost-Bonus in der Score-Formel - dieser Wert ist in der
+  /// Master-Spezifikation nicht beziffert und deshalb noch nicht
+  /// implementiert (mit dem Produktverantwortlichen abgestimmt).
+  superSwipe;
+
+  /// Der in Firestore gespeicherte String (§17.4-Schema: `swipe_type` enum
+  /// `'like'|'dislike'|'skip'|'watchlist'|'super'`). Für alle Werte außer
+  /// [superSwipe] identisch mit [name]; `super` ist ein reserviertes
+  /// Dart-Schlüsselwort und kann nicht als Enum-Bezeichner verwendet werden,
+  /// daher diese explizite Zuordnung statt eines blinden `.name`.
+  String get firestoreValue => this == SwipeDecision.superSwipe ? 'super' : name;
 
   static SwipeDecision fromString(String value) {
+    if (value == 'super') return SwipeDecision.superSwipe;
     return SwipeDecision.values.firstWhere(
       (decision) => decision.name == value,
       orElse: () => SwipeDecision.dislike,
@@ -61,7 +77,7 @@ class MovieSwipe {
     return {
       'uid': uid,
       'movie_id': movieId,
-      'decision': decision.name,
+      'decision': decision.firestoreValue,
       'created_at': Timestamp.fromDate(createdAt),
       'updated_at': Timestamp.fromDate(updatedAt),
       'genre_ids': genreIds,

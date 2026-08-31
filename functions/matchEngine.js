@@ -8,9 +8,12 @@
  * vollständig; nur dieser Code darf Match-Dokumente erzeugen.
  *
  * Match-Regel: ein Film ist ein Gruppen-Match, sobald *jedes* aktuelle
- * Mitglied der Gruppe ihn geliked hat (Dislike verhindert den Match für
- * diesen Film; ein fehlender Swipe zählt ebenfalls als "noch kein Match").
- * Das deckt automatisch beliebige Gruppengrößen ab, da die aktuelle
+ * Mitglied der Gruppe ihn geliked ODER per "Super Swipe" bewertet hat
+ * (§6/§15: Super Swipe "zählt wie ein Like" für die Match-Bedingung, mit
+ * dem Produktverantwortlichen abgestimmt, da §8 der Master-Spezifikation
+ * wörtlich nur "Like" nennt). Dislike/Skip/Watchlist verhindern den Match
+ * für diesen Film; ein fehlender Swipe zählt ebenfalls als "noch kein
+ * Match". Das deckt automatisch beliebige Gruppengrößen ab, da die aktuelle
  * Mitgliederliste bei jeder Auswertung frisch abgefragt wird.
  *
  * WICHTIG: Es wird bewusst pro Mitglieds-UID geprüft (nicht nur eine
@@ -71,7 +74,11 @@ async function evaluateMatch({ firestore, groupId, movieId }) {
 
   // Absichtlich pro echtem Mitglied nachschlagen statt nur eine Like-Anzahl
   // zu zählen - ein Swipe eines Nicht-(mehr-)Mitglieds zählt so nie mit.
-  const likeCount = memberUids.filter((uid) => decisionByUid.get(uid) === 'like').length;
+  // 'super' (Super Swipe) zählt bewusst gleichwertig zu 'like' mit.
+  const likeCount = memberUids.filter((uid) => {
+    const decision = decisionByUid.get(uid);
+    return decision === 'like' || decision === 'super';
+  }).length;
   const isMatch = likeCount === memberCount;
 
   if (!isMatch) {

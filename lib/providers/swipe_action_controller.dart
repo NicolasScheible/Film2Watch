@@ -34,6 +34,12 @@ class SwipeActionController extends AsyncNotifier<void> {
   Future<void> watchlist(int movieId, {List<int> genreIds = const []}) =>
       _swipe(movieId, decision: SwipeDecision.watchlist, genreIds: genreIds);
 
+  /// "Super Swipe" (§6/§15, Premium-Feature) - wirft eine
+  /// [GroupActionException] über den `error`-Zustand, wenn der User kein
+  /// Premium hat (siehe `SwipeService.superSwipeMovie`).
+  Future<void> superSwipe(int movieId, {List<int> genreIds = const []}) =>
+      _swipe(movieId, decision: SwipeDecision.superSwipe, genreIds: genreIds);
+
   Future<void> _swipe(
     int movieId, {
     required SwipeDecision decision,
@@ -69,6 +75,13 @@ class SwipeActionController extends AsyncNotifier<void> {
           );
         case SwipeDecision.watchlist:
           await service.watchlistMovie(
+            groupId: groupId,
+            uid: uid,
+            movieId: movieId,
+            genreIds: genreIds,
+          );
+        case SwipeDecision.superSwipe:
+          await service.superSwipeMovie(
             groupId: groupId,
             uid: uid,
             movieId: movieId,

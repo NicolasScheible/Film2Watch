@@ -1,5 +1,6 @@
 import '../models/movie_swipe.dart';
 import '../repositories/group_repository.dart';
+import '../repositories/premium_repository.dart';
 import '../repositories/swipe_repository.dart';
 import '../utils/group_exceptions.dart';
 
@@ -7,10 +8,11 @@ import '../utils/group_exceptions.dart';
 /// Mitgliedschaft, bevor überhaupt geschrieben wird (die Firestore Rules
 /// erzwingen dasselbe zusätzlich serverseitig).
 class SwipeService {
-  SwipeService(this._swipeRepository, this._groupRepository);
+  SwipeService(this._swipeRepository, this._groupRepository, this._premiumRepository);
 
   final SwipeRepository _swipeRepository;
   final GroupRepository _groupRepository;
+  final PremiumRepository _premiumRepository;
 
   Future<void> likeMovie({
     required String groupId,
@@ -78,6 +80,33 @@ class SwipeService {
       uid: uid,
       movieId: movieId,
       decision: SwipeDecision.watchlist,
+      genreIds: genreIds,
+    );
+  }
+
+  /// "Super Swipe" (§6/§15, Premium-Feature): "Signalisiert der Gruppe: 'Den
+  /// will ich unbedingt sehen!'". Zählt für die Match-Erkennung wie ein Like
+  /// (`functions/matchEngine.js`), hat aber (noch) keinen eigenen
+  /// Boost-Bonus - die Master-Spezifikation beziffert diesen nicht, das ist
+  /// bewusst nicht Teil dieses Schritts. Rein binäres Premium-Gating: kein
+  /// Kontingent, kein Zähler - Free-User dürfen es gar nicht nutzen,
+  /// Premium-User beliebig oft. Die Firestore Rules erzwingen dieselbe
+  /// Prüfung serverseitig zusätzlich (niemals nur clientseitig vertrauen).
+  Future<void> superSwipeMovie({
+    required String groupId,
+    required String uid,
+    required int movieId,
+    List<int> genreIds = const [],
+  }) async {
+    final isPremium = await _premiumRepository.isPremium(uid);
+    if (!isPremium) {
+      throw const GroupActionException('Super Swipe ist ein Premium-Feature.');
+    }
+    await _swipe(
+      groupId: groupId,
+      uid: uid,
+      movieId: movieId,
+      decision: SwipeDecision.superSwipe,
       genreIds: genreIds,
     );
   }
