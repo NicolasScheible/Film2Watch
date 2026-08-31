@@ -99,7 +99,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Film A'), findsOneWidget);
+      // Ohne Freundes-Boost-Signal entscheidet §7/§18s "ORDER BY friend_likes
+      // DESC, RANDOM()" zufällig, welcher der beiden Filme zuerst gezeigt
+      // wird - der Test darf sich daher nicht auf eine feste Reihenfolge
+      // verlassen, nur auf die tatsächlich angezeigte erste Karte.
+      final filmAShownFirst = find.text('Film A').evaluate().isNotEmpty;
+      final shownId = filmAShownFirst ? 100 : 101;
+      final otherTitle = filmAShownFirst ? 'Film B' : 'Film A';
 
       await tester.tap(find.byIcon(Icons.bookmark_add_outlined));
       await tester.pumpAndSettle();
@@ -108,13 +114,13 @@ void main() {
           .collection('groups')
           .doc(groupId)
           .collection('swipes')
-          .doc('alice_100')
+          .doc('alice_$shownId')
           .get();
       expect(swipeDoc.data()!['decision'], 'watchlist');
 
-      // Die nächste Karte (Film B) ist jetzt sichtbar, Film A verschwunden.
-      expect(find.text('Film B'), findsOneWidget);
-      expect(find.text('Film A'), findsNothing);
+      // Die nächste (bislang nicht gezeigte) Karte ist jetzt sichtbar.
+      expect(find.text(otherTitle), findsOneWidget);
+      expect(find.text(filmAShownFirst ? 'Film A' : 'Film B'), findsNothing);
     });
 
     testWidgets('Film auf der Watchlist erscheint nicht erneut, wenn der Screen neu aufgebaut wird',
@@ -122,7 +128,7 @@ void main() {
       final firstContainer = await _readyContainer(
         firestore: firestore,
         auth: auth,
-        tmdbService: _tmdbService({200: 'Auf Watchlist', 201: 'Bleibt übrig'}),
+        tmdbService: _tmdbService({200: 'Film 200', 201: 'Film 201'}),
       );
       addTearDown(firstContainer.dispose);
 
@@ -134,9 +140,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Ohne Freundes-Boost-Signal entscheidet §7/§18s "ORDER BY friend_likes
+      // DESC, RANDOM()" zufällig, welcher der beiden Filme zuerst gezeigt
+      // wird - der Test merkt sich bewusst den tatsächlich zuerst gezeigten.
+      final film200ShownFirst = find.text('Film 200').evaluate().isNotEmpty;
+      final watchlistedTitle = film200ShownFirst ? 'Film 200' : 'Film 201';
+      final remainingTitle = film200ShownFirst ? 'Film 201' : 'Film 200';
+
       await tester.tap(find.byIcon(Icons.bookmark_add_outlined));
       await tester.pumpAndSettle();
-      expect(find.text('Bleibt übrig'), findsOneWidget);
+      expect(find.text(remainingTitle), findsOneWidget);
 
       // Ein komplett neuer Screen-/Provider-Aufbau (simuliert Pagination
       // bzw. einen App-Neustart), der die bereits in Firestore gespeicherte
@@ -151,7 +164,7 @@ void main() {
       final secondContainer = await _readyContainer(
         firestore: firestore,
         auth: secondAuth,
-        tmdbService: _tmdbService({200: 'Auf Watchlist', 201: 'Bleibt übrig'}),
+        tmdbService: _tmdbService({200: 'Film 200', 201: 'Film 201'}),
       );
       addTearDown(secondContainer.dispose);
 
@@ -163,8 +176,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Auf Watchlist'), findsNothing);
-      expect(find.text('Bleibt übrig'), findsOneWidget);
+      expect(find.text(watchlistedTitle), findsNothing);
+      expect(find.text(remainingTitle), findsOneWidget);
     });
 
     testWidgets('Empty State erscheint, wenn nach der Watchlist-Aktion keine weiteren Filme mehr vorhanden sind',
@@ -246,6 +259,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Ohne Freundes-Boost-Signal entscheidet §7/§18s "ORDER BY friend_likes
+      // DESC, RANDOM()" zufällig, welcher der beiden Filme zuerst gezeigt
+      // wird - der Test prüft daher den tatsächlich zuerst gezeigten.
+      final shownId = find.text('Film X').evaluate().isNotEmpty ? 500 : 501;
+
       // Zwei Taps ohne dazwischenliegendes Settle - der zweite Tap trifft
       // während des laufenden Speichervorgangs auf einen deaktivierten
       // Button (`enabled: !isBusy`).
@@ -258,7 +276,7 @@ void main() {
           .collection('groups')
           .doc(groupId)
           .collection('swipes')
-          .where('movie_id', isEqualTo: 500)
+          .where('movie_id', isEqualTo: shownId)
           .get();
       expect(snapshot.docs, hasLength(1));
     });

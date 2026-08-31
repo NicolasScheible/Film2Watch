@@ -4,17 +4,21 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Trailer-Button**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Swipe-
-(inkl. Watchlist-Ansicht und Filtersystem), Match-, Chat-, Push-, Onboarding- und globaler
-Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. `MovieDetailScreen` zeigt jetzt einen
-„Trailer ansehen"-Button (§9 der Master-Spezifikation), sobald TMDB für den Film einen echten
-YouTube-Trailer liefert (`/movie/{id}/videos`). Antippen öffnet den Trailer eingebettet als
-Popup-Dialog (`youtube_player_flutter`, wie in §18 explizit vorgegeben) - kein externes Öffnen der
-YouTube-App/des Browsers. Kein Trailer vorhanden → kein Button, keine Fehlermeldung, keine
-Platzhalter-Anzeige.
+Aktueller Schritt: **Boost-Algorithmus (MVP: Freundes-Likes)**. Profil-, Freundes-, Profilbild-,
+Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem und Trailer-Button), Match-, Chat-,
+Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. Die
+Swipe-Warteschlange (`GroupSwipeScreen`) wird jetzt nach dem in §7/§18 der Master-Spezifikation
+vorgegebenen MVP-Boost sortiert: Filme, die Freunde des aktuellen Users bereits in derselben
+Gruppe geliked haben, werden priorisiert angezeigt (`ORDER BY friend_likes DESC, RANDOM()`,
+wörtlich aus §18 übernommen). Die vier weiteren, in §7 beschriebenen Faktoren (Genre-Präferenz,
+Anti-Boost bei Dislikes, Bewertung, Zeitverfall) sind explizit **nicht** Teil dieses Schritts, da
+§18 sie ausdrücklich als spätere Erweiterung kennzeichnet und die Master-Spezifikation für sie
+keine eindeutigen Werte/Datenquellen vorgibt (siehe „Boost-Algorithmus" unter „Swipe-Funktion"
+unten für Details).
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Boost-Algorithmus, Watchlist entfernen, Super Swipe/Premium (inkl. Plattform-Mehrfachauswahl),
+Boost-Algorithmus (erweiterte Faktoren: Genre-Präferenz, Anti-Boost, Bewertung, Zeitverfall),
+Watchlist entfernen, Super Swipe/Premium (inkl. Plattform-Mehrfachauswahl),
 Filmabend-/Terminplanung, Werbung.
 
 ## Tech-Stack
@@ -274,6 +278,58 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   aktiven Filter der Session zu verändern. „Zurücksetzen" ist deaktiviert, solange kein Filter aktiv
   ist. Bestehendes Dark Theme (`AppColors`), keine neue Farbpalette, keine Fake-Daten – Plattformen
   und Genres werden live von TMDB geladen.
+
+### Boost-Algorithmus (§7/§18, MVP: Freundes-Likes)
+
+- **Exakte Vorgabe:** §7 beschreibt fünf gewichtete Faktoren (Freundes-Likes +40, Genre-Präferenz
+  +30, Anti-Boost bei Dislikes –10, Bewertung × 5, Zeitverfall) zu einem Gesamt-Score summiert. §18
+  (Umsetzungsanleitung) gibt jedoch explizit einen einfacheren MVP-Startpunkt vor: „Für jede Gruppe
+  einen Zähler `friend_likes` pro Film führen. Beim Laden des Feeds Filme sortieren nach:
+  `ORDER BY friend_likes DESC, RANDOM()`", mit dem ausdrücklichen Hinweis, die übrigen vier Faktoren
+  „später" in einer Cloud Function zu ergänzen. §19 stuft den Boost entsprechend als „(simpel) –
+  Erstmal nur Freundes-Likes" ein.
+- **Umfang dieses Schritts:** Ausschließlich der MVP-Teil aus §18 – ein Freundes-Likes-Zähler pro
+  Film, absteigend sortiert, mit `RANDOM()` als Tie-Breaker (auch bei `friend_likes == 0`, dem
+  Normalfall ohne Boost-Signal – das entspricht der bisherigen, TMDB-popularitätsbasierten
+  Reihenfolge nicht mehr 1:1, sondern randomisiert sie, exakt wie in §7 mit der
+  Zufallskomponente begründet: „Damit immer neue Filme erscheinen"). Genre-Präferenz, Anti-Boost,
+  Bewertung und Zeitverfall sind **bewusst nicht implementiert** – die Master-Spezifikation nennt
+  dafür keine eindeutigen Schwellenwerte (Genre: „wer *oft* Horror liked" ohne Zahl), keine
+  Datenquelle (Anti-Boost verlangt „gleicher Hauptdarsteller" – TMDB-Credits sind nicht
+  integriert) bzw. keine Formel (Zeitverfall: „ältere Likes verlieren an Gewicht" ohne
+  Halbwertszeit). Diese Entscheidung wurde vor der Implementierung explizit mit dem Product Owner
+  abgestimmt.
+- **Architektur:** `SwipeRepository.getGroupLikes(groupId)` (neue Methode, liest alle
+  `decision == 'like'`-Swipes der Gruppe – bereits durch die bestehende Rule
+  `allow read: if isGroupMember(groupId)` gedeckt, keine neue Berechtigung) →
+  `countFriendLikes()`/`sortByFriendLikeBoost()` (`lib/utils/boost.dart`, reine, seiteneffektfreie
+  Funktionen, unabhängig testbar) → `SwipeQueueController` (kombiniert die Freundesliste
+  `friendUidsProvider` mit den Gruppen-Likes, berechnet einmal pro Session-Aufbau eine
+  `Map<movieId, friendLikeCount>` und sortiert die bereits gefilterte, deduplizierte
+  Kandidatenliste am Ende von `_fillQueue` um). Rein clientseitig aus bereits lesbaren
+  Gruppendaten berechnet – keine neue Cloud Function, da §18 diese ausdrücklich nur für die
+  späteren, hier nicht implementierten Faktoren vorsieht.
+- **Freundschaftsbezug:** Nur Likes tatsächlicher Freunde (`friendUidsProvider`, bestehende
+  `friendships`-Collection) zählen – ein Like eines beliebigen anderen Gruppenmitglieds, mit dem
+  keine Freundschaft besteht, beeinflusst den Boost nicht.
+- **Gruppenbezug:** Der Zähler wird ausschließlich aus den Swipes der aktuell geöffneten Gruppe
+  gebildet – ein Freundes-Like in einer anderen Gruppe hat keinen Einfluss.
+- **Zusammenspiel mit dem Filtersystem:** Der Boost sortiert ausschließlich innerhalb der bereits
+  durch `MovieFilter` eingeschränkten und paginierten TMDB-Kandidaten um – ein durch den aktiven
+  Filter ausgeschlossener Film erscheint trotz eines Freundes-Likes nicht erneut.
+- **Was der Boost bewusst NICHT beeinflusst:** Die Match-Erkennung (`functions/matchEngine.js`,
+  unverändert) bleibt vollständig unabhängig vom Boost – der Boost sortiert nur um, er löst nie
+  einen Like/Match aus. Bereits geswipte Filme (`SwipeRepository.getSwipedMovieIds`) bleiben
+  weiterhin ausgeschlossen. Pagination (`_fillQueue`) ist unverändert; der Boost sortiert erst,
+  nachdem alle nötigen Seiten geladen und dedupliziert wurden.
+- **Datenmodell:** Keine Änderung – kein neues Firestore-Feld, keine neue Collection. Der
+  `friend_likes`-Zähler aus §18 wird bewusst nicht als eigenes Firestore-Feld persistiert, sondern
+  bei jedem Session-Aufbau live aus den bestehenden `swipes`-Dokumenten berechnet.
+- **Security:** Keine neuen Firestore-Berechtigungen nötig (bestehende `swipes`-Leseregel deckt
+  `getGroupLikes` bereits ab). Ein Nutzer kann weder den Boost eines anderen Nutzers noch Daten
+  einer fremden Gruppe in die eigene Berechnung einschleusen (Freundesliste und Swipes sind an den
+  eigenen, authentifizierten User bzw. die aktuell geöffnete Gruppe gebunden) und kann über den
+  Boost niemals selbst einen Match erzeugen.
 
 ## Match-System
 

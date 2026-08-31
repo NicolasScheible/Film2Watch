@@ -2,7 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/movie.dart';
 import '../models/movie_filter.dart';
+import '../utils/boost.dart';
 import 'auth_provider.dart';
+import 'friend_provider.dart';
 import 'movie_filter_provider.dart';
 import 'swipe_provider.dart';
 import 'tmdb_provider.dart';
@@ -26,6 +28,7 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
   int _tmdbPage = 0;
   bool _hasMoreTmdbPages = true;
   MovieFilter _filter = MovieFilter.empty;
+  Map<int, int> _friendLikeCounts = const {};
 
   @override
   Future<List<Movie>> build() async {
@@ -43,6 +46,20 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
           uid: uid,
         );
     _excludedIds.addAll(swipedIds);
+
+    // Freundes-Likes-Boost (§7/§18): zählt pro Film, wie viele Freunde des
+    // aktuellen Users ihn in dieser Gruppe geliked haben. Nur einmal pro
+    // Session-Aufbau berechnet (wie die Filterauswahl) - kein Live-Update
+    // während einer laufenden Swipe-Session, das verlangt die
+    // Master-Spezifikation nicht.
+    // `watch(...future)` statt `read(...future)`: verankert die Abhängigkeit
+    // an der Lebensdauer dieses Controllers - ein reines `ref.read(...future)`
+    // hält den `friendUidsProvider` nicht am Leben und kann während des
+    // Awaits vom Container aufgeräumt werden (führt zu "was disposed during
+    // loading state"-Fehlern), da nichts sonst diesen Provider abonniert.
+    final friendUids = (await ref.watch(friendUidsProvider.future)).toSet();
+    final groupLikes = await ref.read(swipeRepositoryProvider).getGroupLikes(groupId);
+    _friendLikeCounts = countFriendLikes(groupLikes: groupLikes, friendUids: friendUids);
 
     return _fillQueue(const []);
   }
@@ -89,7 +106,11 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
       queue = [...queue, ...freshMovies];
     }
 
-    return queue;
+    // §7/§18: "ORDER BY friend_likes DESC, RANDOM()" - sortiert ausschließlich
+    // innerhalb der bereits gefilterten, deduplizierten, noch nicht
+    // bewerteten Kandidaten. Fügt nie einen Film hinzu oder entfernt einen -
+    // reine Umordnung.
+    return sortByFriendLikeBoost(queue, _friendLikeCounts);
   }
 
   String _requireUid() {

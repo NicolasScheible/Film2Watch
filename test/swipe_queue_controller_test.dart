@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:film2watch/models/movie_filter.dart';
 import 'package:film2watch/models/movie_swipe.dart';
@@ -368,6 +369,205 @@ void main() {
       final queue = await container.read(swipeQueueControllerProvider('g1').future);
 
       expect(queue.length, greaterThanOrEqualTo(10));
+    });
+  });
+
+  group('SwipeQueueController - Freundes-Likes-Boost (§7/§18)', () {
+    Future<void> befriendUsers(FakeFirebaseFirestore firestore, String uidA, String uidB) {
+      final pairId = uidA.compareTo(uidB) < 0 ? '${uidA}_$uidB' : '${uidB}_$uidA';
+      return firestore.collection('friendships').doc(pairId).set({
+        'uids': [uidA, uidB],
+        'createdAt': Timestamp.now(),
+      });
+    }
+
+    Future<void> likeMovieAs(FakeFirebaseFirestore firestore, String groupId, String uid, int movieId) {
+      final now = DateTime.now();
+      return firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .doc('${uid}_$movieId')
+          .set(MovieSwipe(
+            uid: uid,
+            movieId: movieId,
+            decision: SwipeDecision.like,
+            createdAt: now,
+            updatedAt: now,
+          ).toFirestore());
+    }
+
+    test('ein von einem Freund geliketer Film wird in der Queue priorisiert (an die Spitze sortiert)',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      await befriendUsers(firestore, 'alice', 'bob');
+      await likeMovieAs(firestore, 'g1', 'bob', 3);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3, 4]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.first.tmdbId, 3);
+    });
+
+    test('mehrere Freundes-Likes für denselben Film summieren sich und priorisieren ihn vor einem einzelnen Like',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      await befriendUsers(firestore, 'alice', 'bob');
+      await befriendUsers(firestore, 'alice', 'carol');
+      await likeMovieAs(firestore, 'g1', 'bob', 1);
+      await likeMovieAs(firestore, 'g1', 'bob', 2);
+      await likeMovieAs(firestore, 'g1', 'carol', 2);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.first.tmdbId, 2);
+      expect(queue[1].tmdbId, 1);
+    });
+
+    test('ohne Boost-Daten funktioniert die normale (zufällige) Reihenfolge weiter - alle Filme bleiben enthalten',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3, 4]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.map((m) => m.tmdbId).toSet(), {1, 2, 3, 4});
+    });
+
+    test('ein Like eines Nicht-Freunds (aber Gruppenmitglieds) beeinflusst den Boost nicht', () async {
+      final firestore = FakeFirebaseFirestore();
+      // "stranger" ist NICHT mit alice befreundet.
+      await likeMovieAs(firestore, 'g1', 'stranger', 2);
+      // Film 1 wird von einem echten Freund geliked - muss trotzdem an 2 vorbeiziehen.
+      await befriendUsers(firestore, 'alice', 'bob');
+      await likeMovieAs(firestore, 'g1', 'bob', 1);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.first.tmdbId, 1);
+    });
+
+    test('Freundes-Likes aus einer anderen Gruppe beeinflussen den Boost dieser Gruppe nicht (Gruppentrennung)',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      await befriendUsers(firestore, 'alice', 'bob');
+      // bob liked Film 2 in einer ANDEREN Gruppe (g2), nicht in g1.
+      await likeMovieAs(firestore, 'g2', 'bob', 2);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      // Kein Boost-Signal in g1 - alle Filme bleiben enthalten, aber Film 2
+      // ist nicht deterministisch an der Spitze.
+      expect(queue.map((m) => m.tmdbId).toSet(), {1, 2, 3});
+    });
+
+    test('bereits vom aktuellen User geswipte Filme bleiben trotz Freundes-Boost ausgeschlossen', () async {
+      final firestore = FakeFirebaseFirestore();
+      final now = DateTime.now();
+      await firestore
+          .collection('groups')
+          .doc('g1')
+          .collection('swipes')
+          .doc('alice_1')
+          .set(MovieSwipe(
+            uid: 'alice',
+            movieId: 1,
+            decision: SwipeDecision.like,
+            createdAt: now,
+            updatedAt: now,
+          ).toFirestore());
+      await befriendUsers(firestore, 'alice', 'bob');
+      await likeMovieAs(firestore, 'g1', 'bob', 1);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.map((m) => m.tmdbId), isNot(contains(1)));
+    });
+
+    test('ein Freundes-Boost erzeugt niemals selbst ein Match-Dokument', () async {
+      final firestore = FakeFirebaseFirestore();
+      await befriendUsers(firestore, 'alice', 'bob');
+      await likeMovieAs(firestore, 'g1', 'bob', 1);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      await container.read(swipeQueueControllerProvider('g1').future);
+
+      final matches = await firestore.collection('groups/g1/matches').get();
+      expect(matches.docs, isEmpty);
+    });
+
+    test('der Boost bleibt innerhalb der Filter-Kandidatenmenge - ein durch den Filter ausgeschlossener Film erscheint trotz Boost nicht',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      await befriendUsers(firestore, 'alice', 'bob');
+      // bob liked Film 999 - der taucht aber nie in den (gefilterten)
+      // Discover-Ergebnissen auf, weil der TMDB-Mock ihn nie zurückliefert.
+      await likeMovieAs(firestore, 'g1', 'bob', 999);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.map((m) => m.tmdbId), isNot(contains(999)));
+      expect(queue.map((m) => m.tmdbId).toSet(), {1, 2, 3});
+    });
+
+    test('Pagination bleibt mit aktivem Boost korrekt - keine Duplikate, keine Endlosschleife', () async {
+      final firestore = FakeFirebaseFirestore();
+      await befriendUsers(firestore, 'alice', 'bob');
+      await likeMovieAs(firestore, 'g1', 'bob', 7);
+
+      final tmdbService = _tmdbServiceForPages(
+        {
+          1: [1, 2, 3, 4],
+          2: [5, 6, 7, 8],
+          3: [9, 10, 11, 12],
+        },
+        totalPages: 5,
+      );
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.length, greaterThanOrEqualTo(10));
+      expect(queue.map((m) => m.tmdbId).toSet().length, queue.length);
+      expect(queue.first.tmdbId, 7);
     });
   });
 }

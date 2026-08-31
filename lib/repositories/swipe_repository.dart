@@ -75,4 +75,17 @@ class SwipeRepository {
         .snapshots()
         .map((snapshot) => snapshot.docs.map(MovieSwipe.fromFirestore).toList());
   }
+
+  /// Alle Like-Entscheidungen aller Mitglieder dieser Gruppe (nicht nur des
+  /// aktuellen Users) - Grundlage für den Freundes-Likes-Boost (§7/§18 der
+  /// Master-Spezifikation: `friend_likes`-Zähler pro Film). Firestore Rules
+  /// erlauben jedem Gruppenmitglied das Lesen aller Swipes der eigenen
+  /// Gruppe bereits (`allow read: if isGroupMember(groupId)`) - keine neue
+  /// Berechtigung nötig. Die Einschränkung auf tatsächliche Freunde
+  /// übernimmt die aufrufende Schicht (`countFriendLikes`).
+  Future<List<MovieSwipe>> getGroupLikes(String groupId) async {
+    final snapshot =
+        await _swipes(groupId).where('decision', isEqualTo: SwipeDecision.like.name).get();
+    return snapshot.docs.map(MovieSwipe.fromFirestore).toList();
+  }
 }
