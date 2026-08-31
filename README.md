@@ -4,19 +4,18 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Filtersystem für den Swipe-Bereich**. Profil-, Freundes-, Profilbild-,
-Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht), Match-, Chat-, Push-, Onboarding- und globaler
-Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. Innerhalb einer Gruppen-Swipe-Session
-(`GroupSwipeScreen`) kann jetzt nach Plattform, Genre, Erscheinungsjahr, Mindestbewertung und
-Filmlänge gefiltert werden (§10 der Master-Spezifikation), über einen neuen Filter-Button in der
-AppBar mit Badge für die Anzahl aktiver Kriterien. Die Filterauswahl ist bewusst rein
-session-lokal (kein Firestore, keine Persistenz) und pro Gruppe unabhängig; ein Filterwechsel baut
-die TMDB-Warteschlange vollständig neu auf, bereits geswipte Filme bleiben weiterhin
-ausgeschlossen. Details siehe „Filtersystem" unter „Swipe-Funktion" unten.
+Aktueller Schritt: **Trailer-Button**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Swipe-
+(inkl. Watchlist-Ansicht und Filtersystem), Match-, Chat-, Push-, Onboarding- und globaler
+Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. `MovieDetailScreen` zeigt jetzt einen
+„Trailer ansehen"-Button (§9 der Master-Spezifikation), sobald TMDB für den Film einen echten
+YouTube-Trailer liefert (`/movie/{id}/videos`). Antippen öffnet den Trailer eingebettet als
+Popup-Dialog (`youtube_player_flutter`, wie in §18 explizit vorgegeben) - kein externes Öffnen der
+YouTube-App/des Browsers. Kein Trailer vorhanden → kein Button, keine Fehlermeldung, keine
+Platzhalter-Anzeige.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Trailer-Button, Boost-Algorithmus, Watchlist entfernen, Super Swipe/Premium (inkl.
-Plattform-Mehrfachauswahl), Filmabend-/Terminplanung, Werbung.
+Boost-Algorithmus, Watchlist entfernen, Super Swipe/Premium (inkl. Plattform-Mehrfachauswahl),
+Filmabend-/Terminplanung, Werbung.
 
 ## Tech-Stack
 
@@ -596,7 +595,8 @@ des Token-Werts. `created_at`/`updated_at` sind serverseitige Timestamps
   einfacher In-Memory-Cache für Genre-Liste + zuletzt geladene Filmdetails) → Riverpod-Provider/
   Controller → Screens. TMDB-Zugriffe passieren nie direkt aus Widgets.
 - **Endpunkte:** Discover Movies, Search Movies, Movie Details, Genre List (intern für die
-  Genre-Namen-Auflösung), Watch Providers (Streaming-Verfügbarkeit).
+  Genre-Namen-Auflösung), Watch Providers (Streaming-Verfügbarkeit), Watch Provider List
+  (Plattform-Filter), Movie Videos (Trailer).
 - **Fehlerbehandlung:** typisierte Exceptions für fehlenden API-Key, kein Internet/Timeout,
   401/403/404/429/5xx sowie ungültige Antworten – werden in der UI zu verständlichen deutschen
   Meldungen übersetzt, nie als rohe Exception angezeigt. Bei 429 (Rate Limit) erfolgt **kein**
@@ -613,6 +613,28 @@ des Token-Werts. `created_at`/`updated_at` sind serverseitige Timestamps
   verdrahtet.
 - **Bild-URLs:** zentral über `TmdbImageService` (Poster/Backdrop/Provider-Logo), keine manuell
   zusammengebauten URL-Strings im restlichen Code.
+
+### Trailer-Button (§9)
+
+- **Datenquelle:** ausschließlich TMDB (`/movie/{id}/videos`, §17.3: "TMDB API – ... Trailer-Links")
+  - keine eigene/erfundene Trailerquelle. `MovieTrailer.selectFromTmdbJson`
+  (`lib/models/movie_trailer.dart`) wählt daraus gezielt einen `site == 'YouTube'` **und**
+  `type == 'Trailer'` Eintrag aus (Teaser/Clips/Featurettes und andere Plattformen wie Vimeo werden
+  ignoriert); bei mehreren Treffern wird der offizielle bevorzugt, danach der zuletzt
+  veröffentlichte. Liefert TMDB keinen passenden Trailer, ist das Ergebnis `null` - ein normaler,
+  kein fehlerhafter Zustand.
+- **Architektur:** `TmdbService.movieVideos` → `MovieRepository.getTrailer` (In-Memory-Cache wie
+  bei Filmdetails/Genres, kein Firestore) → `movieTrailerProvider` → `_TrailerButton` in
+  `MovieDetailScreen`. Keine zweite TMDB-Integration, keine neue Movie-Datenbank.
+- **UI:** Der „Trailer ansehen"-Button erscheint **nur**, wenn TMDB tatsächlich einen Trailer
+  liefert - kein Platzhalter, keine sichtbare Fehlermeldung bei fehlendem Trailer (Ladezustand und
+  TMDB-Fehler blenden den Button ebenfalls einfach aus, statt die restliche Filmdetailseite zu
+  blockieren). Antippen öffnet `TrailerDialog` - eingebettete Wiedergabe **als Popup** (§9: "öffnet
+  den YouTube-Trailer als kleines Popup"), kein externes Öffnen der YouTube-App oder des Browsers.
+- **Package:** `youtube_player_flutter` (§18 nennt dieses Package explizit als Beispiel-Umsetzung),
+  gebaut auf der offiziellen YouTube-iFrame-API - kein YouTube-API-Key nötig, keine Secrets im
+  Client. Der YouTube-Video-Key wird nur so lange gehalten, wie für Anzeige/Wiedergabe nötig
+  (Repository-Cache, kein Firestore-Feld).
 
 ### TMDB API Key (Secret-Handling)
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../components/movies/trailer_dialog.dart';
 import '../../providers/tmdb_provider.dart';
 import '../../services/tmdb_image_service.dart';
 import '../../theme/app_theme.dart';
@@ -125,6 +126,8 @@ class MovieDetailScreen extends ConsumerWidget {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 16),
+                      _TrailerButton(tmdbId: tmdbId),
                       if (movie.overview.isNotEmpty) ...[
                         const SizedBox(height: 20),
                         Text('Beschreibung', style: Theme.of(context).textTheme.titleMedium),
@@ -200,6 +203,39 @@ class _WatchProvidersSection extends ConsumerWidget {
               ),
             ),
           ],
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (error, _) => const SizedBox.shrink(),
+    );
+  }
+}
+
+/// "Trailer ansehen"-Button (§9). Erscheint ausschließlich, wenn TMDB
+/// tatsächlich einen YouTube-Trailer liefert - kein Platzhalter-Button,
+/// keine sichtbare Fehlermeldung, wenn schlicht kein Trailer existiert
+/// (ein fehlender Trailer ist ein normaler, häufiger TMDB-Zustand, kein
+/// Fehler). Antippen öffnet den Trailer eingebettet als Popup.
+class _TrailerButton extends ConsumerWidget {
+  const _TrailerButton({required this.tmdbId});
+
+  final int tmdbId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final trailerAsync = ref.watch(movieTrailerProvider(tmdbId));
+
+    return trailerAsync.when(
+      data: (trailer) {
+        if (trailer == null) return const SizedBox.shrink();
+        return OutlinedButton.icon(
+          onPressed: () => TrailerDialog.show(context, trailer.youtubeKey),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.textPrimary,
+            side: const BorderSide(color: AppColors.accentSecondary),
+          ),
+          icon: const Icon(Icons.play_circle_outline, color: AppColors.accentSecondary),
+          label: const Text('Trailer ansehen'),
         );
       },
       loading: () => const SizedBox.shrink(),

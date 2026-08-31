@@ -98,6 +98,14 @@ class TmdbService {
     return _get('/movie/$tmdbId/watch/providers', const {});
   }
 
+  /// Trailer-/Video-Liste eines Films (`/movie/{id}/videos`) - Grundlage für
+  /// den "Trailer ansehen"-Button (§9). Liefert u. a. YouTube-Video-Keys.
+  Future<Map<String, dynamic>> movieVideos(int tmdbId, {String? language}) {
+    return _get('/movie/$tmdbId/videos', {
+      'language': language ?? TmdbConfig.defaultLanguage,
+    });
+  }
+
   Future<Map<String, dynamic>> _get(String path, Map<String, String> queryParameters) async {
     if (accessToken.isEmpty) {
       throw const TmdbNotConfiguredException();

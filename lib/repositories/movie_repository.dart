@@ -1,6 +1,7 @@
 import '../models/movie.dart';
 import '../models/movie_filter.dart';
 import '../models/movie_page.dart';
+import '../models/movie_trailer.dart';
 import '../models/watch_provider_option.dart';
 import '../services/tmdb_service.dart';
 import '../utils/tmdb_config.dart';
@@ -19,6 +20,8 @@ class MovieRepository {
   List<WatchProviderOption>? _watchProviderListCache;
   final Map<int, Movie> _detailsCache = {};
   static const _maxDetailsCacheSize = 100;
+  final Map<int, MovieTrailer?> _trailerCache = {};
+  static const _maxTrailerCacheSize = 100;
 
   Future<MoviePage> discoverMovies({int page = 1, MovieFilter filter = MovieFilter.empty}) async {
     final genreNames = await _genreNames();
@@ -103,6 +106,23 @@ class MovieRepository {
         .whereType<Map<String, dynamic>>()
         .map(WatchProviderOption.fromTmdbJson)
         .toList();
+  }
+
+  /// Trailer für den "Trailer ansehen"-Button (§9) - `null`, wenn TMDB
+  /// keinen passenden YouTube-Trailer liefert (siehe
+  /// [MovieTrailer.selectFromTmdbJson]). Der YouTube-Key wird nur für die
+  /// Anzeige/Wiedergabe gehalten, nie nach Firestore dupliziert.
+  Future<MovieTrailer?> getTrailer(int tmdbId) async {
+    if (_trailerCache.containsKey(tmdbId)) return _trailerCache[tmdbId];
+
+    final json = await _tmdbService.movieVideos(tmdbId);
+    final trailer = MovieTrailer.selectFromTmdbJson(json);
+
+    if (_trailerCache.length >= _maxTrailerCacheSize) {
+      _trailerCache.remove(_trailerCache.keys.first);
+    }
+    _trailerCache[tmdbId] = trailer;
+    return trailer;
   }
 
   Future<Map<int, String>> _genreNames() async {

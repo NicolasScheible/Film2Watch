@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/movie.dart';
+import '../models/movie_trailer.dart';
 import '../models/watch_provider_option.dart';
 import '../repositories/movie_repository.dart';
 import '../services/tmdb_service.dart';
@@ -40,4 +41,10 @@ final movieGenresProvider = FutureProvider<Map<int, String>>((ref) {
 /// Plattform-Filter-Auswahl (§10) - keine selbst erfundene Plattformliste.
 final watchProviderListProvider = FutureProvider<List<WatchProviderOption>>((ref) {
   return ref.watch(movieRepositoryProvider).getAvailableWatchProviders();
+});
+
+/// Trailer für den "Trailer ansehen"-Button (§9) - `null`, wenn TMDB keinen
+/// passenden YouTube-Trailer liefert.
+final movieTrailerProvider = FutureProvider.family<MovieTrailer?, int>((ref, tmdbId) {
+  return ref.watch(movieRepositoryProvider).getTrailer(tmdbId);
 });
