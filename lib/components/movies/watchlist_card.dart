@@ -16,17 +16,27 @@ import '../../theme/app_theme.dart';
 /// `swipe_provider.dart`, hier wird nur noch angezeigt. Lädt TMDB
 /// unabhängig pro Karte, damit ein einzelner Ladefehler nicht die gesamte
 /// Liste blockiert.
+///
+/// [onRemove] ist optional: nur gesetzt, wenn der aktuelle User diesen Film
+/// tatsächlich selbst vorgemerkt hat (nur der eigene Eintrag darf entfernt
+/// werden - siehe `SwipeService.removeFromWatchlist`/Firestore Rules). Ist
+/// [isRemoving] gesetzt, zeigt die Karte statt des Entfernen-Buttons einen
+/// Ladeindikator und ignoriert weitere Taps (kein Double-Submit).
 class WatchlistCard extends ConsumerWidget {
   const WatchlistCard({
     super.key,
     required this.movieId,
     required this.badgeLabel,
     required this.onTap,
+    this.onRemove,
+    this.isRemoving = false,
   });
 
   final int movieId;
   final String badgeLabel;
   final VoidCallback onTap;
+  final VoidCallback? onRemove;
+  final bool isRemoving;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -72,7 +82,7 @@ class WatchlistCard extends ConsumerWidget {
                   Positioned(
                     top: 8,
                     left: 8,
-                    right: 8,
+                    right: onRemove == null ? 8 : 36,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
@@ -92,6 +102,16 @@ class WatchlistCard extends ConsumerWidget {
                       ),
                     ),
                   ),
+                  if (onRemove != null)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: _RemoveButton(
+                        key: Key('watchlist_remove_$movieId'),
+                        isRemoving: isRemoving,
+                        onPressed: onRemove!,
+                      ),
+                    ),
                   Positioned(
                     left: 0,
                     right: 0,
@@ -206,6 +226,44 @@ class WatchlistCard extends ConsumerWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Kleiner runder Entfernen-Button oben rechts auf der [WatchlistCard].
+/// Zeigt während [isRemoving] einen Ladeindikator statt des Icons und
+/// ignoriert weitere Taps - kein Double-Submit bei schnellem Mehrfachtippen.
+class _RemoveButton extends StatelessWidget {
+  const _RemoveButton({super.key, required this.isRemoving, required this.onPressed});
+
+  final bool isRemoving;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.7),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        // Der Callback bleibt bewusst immer gesetzt (nie `null`), auch
+        // während [isRemoving]: ein `onTap: null` ließe den `InkWell` die
+        // Geste gar nicht erst abfangen, wodurch ein zweiter schneller Tap
+        // durch den Button hindurch auf die darunterliegende Karte
+        // durchschlägt (öffnet dann versehentlich die Filmdetails statt
+        // nichts zu tun).
+        onTap: isRemoving ? () {} : onPressed,
+        child: Padding(
+          padding: const EdgeInsets.all(5),
+          child: isRemoving
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Icon(Icons.close, size: 14, color: Colors.white),
         ),
       ),
     );

@@ -185,8 +185,7 @@ service cloud.firestore {
       // "{uid}_{movieId}" - ein erneutes Bewerten desselben Films
       // aktualisiert die bestehende Entscheidung statt ein zweites Dokument
       // zu erzeugen. Lesbar für alle Mitglieder (spätere Match-Auswertung
-      // braucht das), schreibbar ausschließlich für den eigenen Swipe. Kein
-      // Löschen in diesem Schritt.
+      // braucht das), schreibbar ausschließlich für den eigenen Swipe.
       match /swipes/{swipeId} {
         allow read: if isGroupMember(groupId);
 
@@ -202,7 +201,15 @@ service cloud.firestore {
           && request.resource.data.created_at == resource.data.created_at
           && request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist'];
 
-        allow delete: if false;
+        // Löschen ist ausschließlich für den eigenen Watchlist-Eintrag
+        // erlaubt ("Vielleicht später" wieder entfernen) - Like/Dislike/Skip
+        // bleiben weiterhin unlöschbar, das ist kein Teil dieses Schritts.
+        // Ein gelöschter Swipe zählt in der Match-Erkennung
+        // (functions/matchEngine.js) automatisch als "kein Like" - ein
+        // Entfernen kann also strukturell nie einen Match auslösen.
+        allow delete: if isGroupMember(groupId)
+          && request.auth.uid == resource.data.uid
+          && resource.data.decision == 'watchlist';
       }
 
       // Gruppen-Matches (Filme, die alle aktuellen Mitglieder geliked haben).

@@ -11,6 +11,7 @@ import '../../providers/group_action_controller.dart';
 import '../../providers/group_provider.dart';
 import '../../providers/match_provider.dart';
 import '../../providers/swipe_provider.dart';
+import '../../providers/watchlist_remove_controller.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/group_error_translator.dart';
 import '../movies/movie_detail_screen.dart';
@@ -215,6 +216,16 @@ class _WatchlistSection extends ConsumerWidget {
     final watchlistAsync = ref.watch(groupWatchlistProvider(groupId));
     final myUid = ref.watch(authStateChangesProvider).value?.uid;
     final totalMembers = ref.watch(groupMembersProvider(groupId)).value?.length;
+    final removeState = ref.watch(watchlistRemoveControllerProvider(groupId));
+    final removingMovieId =
+        ref.watch(watchlistRemoveControllerProvider(groupId).notifier).removingMovieId;
+
+    ref.listen(watchlistRemoveControllerProvider(groupId), (previous, next) {
+      next.whenOrNull(
+        error: (error, _) => ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(translateGroupError(error)))),
+      );
+    });
 
     return watchlistAsync.when(
       data: (entries) {
@@ -232,9 +243,8 @@ class _WatchlistSection extends ConsumerWidget {
             separatorBuilder: (context, index) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
               final entry = entries[index];
-              final isOnlyMe = entry.memberUids.length == 1 &&
-                  myUid != null &&
-                  entry.memberUids.contains(myUid);
+              final isOwnEntry = myUid != null && entry.memberUids.contains(myUid);
+              final isOnlyMe = entry.memberUids.length == 1 && isOwnEntry;
               final badgeLabel = isOnlyMe
                   ? 'Du hast vorgemerkt'
                   : '${entry.memberUids.length}/${totalMembers ?? entry.memberUids.length} vorgemerkt';
@@ -246,6 +256,12 @@ class _WatchlistSection extends ConsumerWidget {
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => MovieDetailScreen(tmdbId: entry.movieId)),
                   ),
+                  onRemove: isOwnEntry
+                      ? () => ref
+                          .read(watchlistRemoveControllerProvider(groupId).notifier)
+                          .remove(entry.movieId)
+                      : null,
+                  isRemoving: removeState.isLoading && removingMovieId == entry.movieId,
                 ),
               );
             },

@@ -38,6 +38,29 @@ class SwipeService {
     return _swipe(groupId: groupId, uid: uid, movieId: movieId, decision: SwipeDecision.watchlist);
   }
 
+  /// Entfernt [uid]s eigenen Watchlist-Eintrag für [movieId] vollständig -
+  /// der Film ist danach wieder ein unbewerteter Kandidat und kann erneut in
+  /// der Swipe-Queue erscheinen. Wirft, wenn der bestehende Eintrag gar
+  /// keine Watchlist-Entscheidung ist (die Firestore Rules lehnen ein
+  /// Löschen von Like/Dislike/Skip ohnehin serverseitig ab - diese Prüfung
+  /// liefert dafür clientseitig eine verständliche Fehlermeldung statt einer
+  /// rohen Permission-Denied-Exception).
+  Future<void> removeFromWatchlist({
+    required String groupId,
+    required String uid,
+    required int movieId,
+  }) async {
+    final member = await _groupRepository.getMember(groupId, uid);
+    if (member == null) {
+      throw const GroupActionException('Du bist kein Mitglied dieser Gruppe.');
+    }
+    final swipe = await _swipeRepository.getSwipe(groupId: groupId, uid: uid, movieId: movieId);
+    if (swipe == null || swipe.decision != SwipeDecision.watchlist) {
+      throw const GroupActionException('Dieser Film ist nicht auf deiner Watchlist.');
+    }
+    await _swipeRepository.removeSwipe(groupId: groupId, uid: uid, movieId: movieId);
+  }
+
   Future<void> _swipe({
     required String groupId,
     required String uid,

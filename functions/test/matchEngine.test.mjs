@@ -314,4 +314,39 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
     const stillNoMatch = await matchRef('g18', 619).get();
     assert.equal(stillNoMatch.exists, false);
   });
+
+  it('19. Löschen eines Watchlist-Swipes (Watchlist entfernen) triggert onSwipeWritten und erzeugt keinen Match',
+      async () => {
+    await createGroup('g19', ['alice', 'bob']);
+    // Bob liked bereits - ohne Alice' Like entsteht (noch) kein Match.
+    await setSwipe('g19', 'bob', 621, 'like');
+    await setSwipe('g19', 'alice', 621, 'watchlist');
+    await assertNoMatchAfterSettling('g19', 621);
+
+    // Alice entfernt ihren Watchlist-Eintrag (echtes delete() statt eines
+    // Decision-Wechsels, wie es die Client-Funktion beim Entfernen tut) -
+    // das triggert `onSwipeWritten` (onWrite feuert auch bei delete). Ein
+    // fehlendes Swipe-Dokument zählt in `evaluateMatch` genauso wenig als
+    // Like wie eine explizite dislike/skip/watchlist-Entscheidung - es darf
+    // also strukturell nie einen Match auslösen.
+    await db.doc('groups/g19/swipes/alice_621').delete();
+
+    await assertNoMatchAfterSettling('g19', 621);
+  });
+
+  it('20. Löschen eines Watchlist-Swipes lässt einen späteren echten Like normal zum Match führen',
+      async () => {
+    await createGroup('g20', ['alice', 'bob']);
+    await setSwipe('g20', 'bob', 622, 'like');
+    await setSwipe('g20', 'alice', 622, 'watchlist');
+    await db.doc('groups/g20/swipes/alice_622').delete();
+    await assertNoMatchAfterSettling('g20', 622);
+
+    // Der Film ist jetzt wieder ein unbewerteter Kandidat für Alice - ein
+    // echter Like führt normal zum Match.
+    await setSwipe('g20', 'alice', 622, 'like');
+    const snap = await waitForMatch('g20', 622);
+    assert.equal(snap.exists, true);
+    assert.deepEqual(snap.data().member_uids, ['alice', 'bob']);
+  });
 });

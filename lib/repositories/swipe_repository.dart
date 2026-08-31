@@ -76,6 +76,19 @@ class SwipeRepository {
         .map((snapshot) => snapshot.docs.map(MovieSwipe.fromFirestore).toList());
   }
 
+  /// Entfernt die eigene Watchlist-Entscheidung für [movieId] vollständig -
+  /// der Film ist danach wieder ein unbewerteter Kandidat und kann erneut in
+  /// der Swipe-Queue erscheinen. Die Firestore Rules erlauben `delete`
+  /// ausschließlich für den eigenen Swipe mit `decision == 'watchlist'` -
+  /// Like/Dislike/Skip bleiben unlöschbar.
+  Future<void> removeSwipe({
+    required String groupId,
+    required String uid,
+    required int movieId,
+  }) {
+    return _swipes(groupId).doc(_swipeId(uid, movieId)).delete();
+  }
+
   /// Alle Like-Entscheidungen aller Mitglieder dieser Gruppe (nicht nur des
   /// aktuellen Users) - Grundlage für den Freundes-Likes-Boost (§7/§18 der
   /// Master-Spezifikation: `friend_likes`-Zähler pro Film). Firestore Rules

@@ -187,6 +187,66 @@ void main() {
       );
     });
 
+    test('removeFromWatchlist entfernt den eigenen Watchlist-Eintrag vollständig', () async {
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'alice', movieId: 700);
+
+      await swipeService.removeFromWatchlist(groupId: groupId, uid: 'alice', movieId: 700);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 700);
+      expect(swipe, isNull);
+    });
+
+    test('removeFromWatchlist lässt den Film wieder als unbewerteten Kandidaten erscheinen', () async {
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'alice', movieId: 701);
+      await swipeService.removeFromWatchlist(groupId: groupId, uid: 'alice', movieId: 701);
+
+      final swipedIds = await swipeRepository.getSwipedMovieIds(groupId: groupId, uid: 'alice');
+      expect(swipedIds, isNot(contains(701)));
+    });
+
+    test('removeFromWatchlist eines nicht existierenden Eintrags wirft eine verständliche Exception', () async {
+      expect(
+        () => swipeService.removeFromWatchlist(groupId: groupId, uid: 'alice', movieId: 702),
+        throwsA(isA<GroupActionException>()),
+      );
+    });
+
+    test('removeFromWatchlist auf einem Like/Dislike/Skip-Eintrag wirft eine verständliche Exception (kein Löschen)',
+        () async {
+      await swipeService.likeMovie(groupId: groupId, uid: 'alice', movieId: 703);
+
+      expect(
+        () => swipeService.removeFromWatchlist(groupId: groupId, uid: 'alice', movieId: 703),
+        throwsA(isA<GroupActionException>()),
+      );
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 703);
+      expect(swipe, isNotNull, reason: 'Der Like-Swipe darf nicht gelöscht worden sein');
+      expect(swipe!.decision, SwipeDecision.like);
+    });
+
+    test('removeFromWatchlist entfernt nur den eigenen Eintrag, der Watchlist-Eintrag eines anderen Mitglieds bleibt unverändert',
+        () async {
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'alice', movieId: 704);
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'bob', movieId: 704);
+
+      await swipeService.removeFromWatchlist(groupId: groupId, uid: 'alice', movieId: 704);
+
+      final aliceSwipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 704);
+      final bobSwipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'bob', movieId: 704);
+      expect(aliceSwipe, isNull);
+      expect(bobSwipe, isNotNull);
+      expect(bobSwipe!.decision, SwipeDecision.watchlist);
+    });
+
+    test('removeFromWatchlist durch ein Nicht-Mitglied schlägt fehl', () async {
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'alice', movieId: 705);
+
+      expect(
+        () => swipeService.removeFromWatchlist(groupId: groupId, uid: 'carol', movieId: 705),
+        throwsA(isA<GroupActionException>()),
+      );
+    });
+
     test('bereits bewerteter Film wird erkannt', () async {
       await swipeService.likeMovie(groupId: groupId, uid: 'bob', movieId: 552);
 

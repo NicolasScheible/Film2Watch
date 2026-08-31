@@ -240,9 +240,94 @@ describe('groups/{groupId}/swipes/{swipeId}', () => {
     await assertFails(db.doc('groups/swipesgroup1/swipes/bob_200').delete());
   });
 
-  it('lehnt es ab, dass der eigene Swipe gelöscht wird (kein Löschen in diesem Schritt)', async () => {
+  it('lehnt es ab, dass der eigene Dislike-Swipe gelöscht wird (nur Watchlist ist löschbar)', async () => {
     const db = testEnv.authenticatedContext('bob').firestore();
     await assertFails(db.doc('groups/swipesgroup1/swipes/bob_200').delete());
+  });
+
+  it('lehnt es ab, dass der eigene Like-Swipe gelöscht wird (nur Watchlist ist löschbar)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/alice_799').set({
+        uid: 'alice',
+        movie_id: 799,
+        decision: 'like',
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(db.doc('groups/swipesgroup1/swipes/alice_799').delete());
+  });
+
+  it('lehnt es ab, dass der eigene Skip-Swipe gelöscht wird (nur Watchlist ist löschbar)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/alice_800').set({
+        uid: 'alice',
+        movie_id: 800,
+        decision: 'skip',
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(db.doc('groups/swipesgroup1/swipes/alice_800').delete());
+  });
+
+  it('erlaubt es dem User, den eigenen Watchlist-Eintrag zu löschen (Watchlist entfernen)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/alice_801').set({
+        uid: 'alice',
+        movie_id: 801,
+        decision: 'watchlist',
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertSucceeds(db.doc('groups/swipesgroup1/swipes/alice_801').delete());
+  });
+
+  it('lehnt es ab, dass ein fremder Nutzer einen Watchlist-Eintrag eines anderen Mitglieds löscht', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/bob_802').set({
+        uid: 'bob',
+        movie_id: 802,
+        decision: 'watchlist',
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(db.doc('groups/swipesgroup1/swipes/bob_802').delete());
+  });
+
+  it('lehnt es ab, dass ein Nicht-Mitglied einen Watchlist-Eintrag löscht', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/bob_803').set({
+        uid: 'bob',
+        movie_id: 803,
+        decision: 'watchlist',
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    // carol ist kein Mitglied dieser Gruppe.
+    const db = testEnv.authenticatedContext('carol').firestore();
+    await assertFails(db.doc('groups/swipesgroup1/swipes/bob_803').delete());
+  });
+
+  it('lehnt unauthentifiziertes Löschen eines Watchlist-Eintrags ab', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/alice_804').set({
+        uid: 'alice',
+        movie_id: 804,
+        decision: 'watchlist',
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(db.doc('groups/swipesgroup1/swipes/alice_804').delete());
   });
 
   it('erlaubt es dem User, den eigenen Swipe zu aktualisieren (Like -> Dislike)', async () => {

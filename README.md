@@ -4,21 +4,17 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Boost-Algorithmus (MVP: Freundes-Likes)**. Profil-, Freundes-, Profilbild-,
-Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem und Trailer-Button), Match-, Chat-,
-Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. Die
-Swipe-Warteschlange (`GroupSwipeScreen`) wird jetzt nach dem in §7/§18 der Master-Spezifikation
-vorgegebenen MVP-Boost sortiert: Filme, die Freunde des aktuellen Users bereits in derselben
-Gruppe geliked haben, werden priorisiert angezeigt (`ORDER BY friend_likes DESC, RANDOM()`,
-wörtlich aus §18 übernommen). Die vier weiteren, in §7 beschriebenen Faktoren (Genre-Präferenz,
-Anti-Boost bei Dislikes, Bewertung, Zeitverfall) sind explizit **nicht** Teil dieses Schritts, da
-§18 sie ausdrücklich als spätere Erweiterung kennzeichnet und die Master-Spezifikation für sie
-keine eindeutigen Werte/Datenquellen vorgibt (siehe „Boost-Algorithmus" unter „Swipe-Funktion"
-unten für Details).
+Aktueller Schritt: **Watchlist-Eintrag entfernen**. Profil-, Freundes-, Profilbild-, Gruppen-,
+TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem und Trailer-Button), Boost-Algorithmus (MVP:
+Freundes-Likes), Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den
+vorherigen Schritten unverändert. Ein eigener Watchlist-Eintrag lässt sich jetzt direkt auf der
+`WatchlistCard` entfernen: Das zugrunde liegende Swipe-Dokument wird vollständig gelöscht, der Film
+gilt danach wieder als unbewertet und kann erneut in der eigenen Swipe-Queue erscheinen (siehe
+„Watchlist-Eintrag entfernen" unter „Swipe-Funktion" unten für Details).
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
 Boost-Algorithmus (erweiterte Faktoren: Genre-Präferenz, Anti-Boost, Bewertung, Zeitverfall),
-Watchlist entfernen, Super Swipe/Premium (inkl. Plattform-Mehrfachauswahl),
+Super Swipe/Premium (inkl. Plattform-Mehrfachauswahl),
 Filmabend-/Terminplanung, Werbung.
 
 ## Tech-Stack
@@ -165,7 +161,7 @@ tatsächliches Gruppenbild in der App erscheinen.
 
 | Collection | Zweck | Zugriff |
 |---|---|---|
-| `groups/{groupId}/swipes/{uid}_{movieId}` | Like/Dislike/Skip/Watchlist-Entscheidung eines Mitglieds zu einem Film (`uid, movie_id, decision, created_at, updated_at`) | lesbar für alle Mitglieder der Gruppe, schreibbar nur für den eigenen Swipe, kein Löschen |
+| `groups/{groupId}/swipes/{uid}_{movieId}` | Like/Dislike/Skip/Watchlist-Entscheidung eines Mitglieds zu einem Film (`uid, movie_id, decision, created_at, updated_at`) | lesbar für alle Mitglieder der Gruppe, schreibbar nur für den eigenen Swipe; löschbar nur für den eigenen Swipe, wenn `decision == 'watchlist'` (Watchlist-Eintrag entfernen) – Like/Dislike/Skip bleiben unlöschbar |
 
 Es wird **keine** vollständige TMDB-JSON-Antwort in Firestore gespeichert – nur die
 Entscheidung selbst (`movie_id` + `like`/`dislike`/`skip`/`watchlist`). TMDB bleibt für alle
@@ -230,8 +226,26 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   mit dem Gruppen-Abgleich: „Du hast vorgemerkt", wenn nur der aktuelle User ihn vorgemerkt hat,
   sonst „X/Y vorgemerkt" (X = Mitglieder mit Vormerkung, Y = aktuelle Gruppengröße). Die Watchlist
   ist bewusst **persönlich pro Nutzer und Gruppe**, keine gruppenübergreifende Ansicht – Antippen
-  öffnet wie bei Matches die bestehende `MovieDetailScreen`. Entfernen von der Watchlist ist nicht
-  Teil dieses Schritts.
+  öffnet wie bei Matches die bestehende `MovieDetailScreen`.
+- **Watchlist-Eintrag entfernen:** Auf der eigenen `WatchlistCard` erscheint oben rechts ein
+  Entfernen-Button (nur, wenn der aktuelle User den Film tatsächlich selbst vorgemerkt hat – fremde
+  Einträge zeigen keinen Button und sind nicht entfernbar). Entfernen löscht das bestehende
+  Swipe-Dokument `groups/{groupId}/swipes/{uid}_{movieId}` vollständig
+  (`SwipeRepository.removeSwipe` → `SwipeService.removeFromWatchlist`, geprüft über
+  `WatchlistRemoveController`), statt nur die `decision` zu ändern: Der Film gilt danach wieder als
+  unbewertet und kann bei der nächsten Warteschlangen-Befüllung erneut in der eigenen Swipe-Queue
+  auftauchen und neu bewertet werden (`SwipeRepository.getSwipedMovieIds` findet kein Dokument mehr
+  dazu). Firestore Rules erlauben `delete` ausschließlich für den eigenen Swipe mit
+  `decision == 'watchlist'` – ein fremder Eintrag, eine andere Gruppe oder ein Like-/Dislike-/
+  Skip-Swipe bleiben serverseitig unlöschbar. Ein gelöschter Swipe fehlt in der Match-Erkennung
+  (`functions/matchEngine.js`) einfach als Eintrag und zählt damit strukturell nie als Like –
+  Entfernen kann also nie selbst einen Match auslösen; Likes/Dislikes/Watchlist-Einträge anderer
+  Mitglieder bleiben unverändert, der Gruppen-Abgleich (`groupWatchlistProvider`) aktualisiert sich
+  automatisch über den bestehenden Firestore-Stream. Während des Löschens zeigt die Karte einen
+  Ladeindikator statt des Buttons (`WatchlistCard.isRemoving`, pro Karte einzeln über
+  `WatchlistRemoveController.removingMovieId`, kein globaler Ladezustand für alle Karten) und
+  verhindert Double-Submit; schlägt das Löschen fehl, erscheint eine ehrliche Fehlermeldung als
+  Snackbar (`translateGroupError`).
 - **Speichern & Fehlerbehandlung:** Die Entscheidung wird erst nach der Wisch-/Tap-Animation
   gespeichert; schlägt das Speichern fehl (kein Internet, Firestore-Fehler, ...), verschwindet die
   Karte **nicht** kommentarlos – ein Fehler wird angezeigt und der User kann es erneut versuchen.
