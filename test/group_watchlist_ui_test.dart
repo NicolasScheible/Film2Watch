@@ -236,6 +236,8 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Entfernen'));
+      await tester.pumpAndSettle();
 
       expect(find.text('Wird entfernt'), findsNothing);
       expect(find.text('Noch keine Filme auf der Watchlist.'), findsOneWidget);
@@ -265,6 +267,8 @@ void main() {
       expect(find.text('2/2 vorgemerkt'), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Entfernen'));
       await tester.pumpAndSettle();
 
       // Bobs Eintrag bleibt bestehen, der Film ist weiterhin auf der Liste,
@@ -303,16 +307,21 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Zwei Taps auf denselben Button (stabiler Key statt Icon-Finder, da
-      // das Icon während des Löschvorgangs durch einen Ladeindikator ersetzt
-      // wird) ohne dazwischenliegendes Settle - der zweite Tap trifft
-      // während des laufenden Löschvorgangs auf einen bereits deaktivierten
-      // Button.
+      // Der Bestätigungsdialog wird nur einmal bestätigt - danach zwei Taps
+      // auf denselben Button (stabiler Key statt Icon-Finder, da das Icon
+      // während des Löschvorgangs durch einen Ladeindikator ersetzt wird)
+      // ohne dazwischenliegendes Settle: der zweite Tap trifft während des
+      // laufenden Löschvorgangs auf einen bereits deaktivierten Button und
+      // öffnet insbesondere keinen zweiten Bestätigungsdialog.
       final removeButton = find.byKey(const Key('watchlist_remove_804'));
       await tester.tap(removeButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Entfernen'));
       await tester.pump();
       await tester.tap(removeButton, warnIfMissed: false);
       await tester.pumpAndSettle();
+
+      expect(find.text('Von Watchlist entfernen'), findsNothing);
 
       expect(find.text('Doppelklick-Film'), findsNothing);
 
@@ -343,8 +352,71 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Entfernen'));
+      await tester.pumpAndSettle();
 
       expect(find.textContaining('nicht auf deiner Watchlist'), findsOneWidget);
+    });
+
+    testWidgets('der Bestätigungsdialog wird vor dem Entfernen angezeigt, der Eintrag bleibt bis zur Bestätigung bestehen',
+        (tester) async {
+      await _seedWatchlist(firestore, groupId, 'alice', 806);
+
+      addTearDown(tester.view.resetPhysicalSize);
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+
+      await tester.pumpWidget(wrap(_tmdbService({806: 'Dialog-Film'})));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Von Watchlist entfernen'), findsOneWidget);
+      expect(
+        find.text('Möchtest du diesen Film wirklich von deiner Watchlist entfernen?'),
+        findsOneWidget,
+      );
+      // Noch nicht bestätigt - der Eintrag ist unverändert vorhanden.
+      expect(find.text('Dialog-Film'), findsOneWidget);
+
+      final swipeDoc = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .doc('alice_806')
+          .get();
+      expect(swipeDoc.exists, isTrue);
+    });
+
+    testWidgets('Abbrechen im Bestätigungsdialog lässt den Watchlist-Eintrag unverändert bestehen',
+        (tester) async {
+      await _seedWatchlist(firestore, groupId, 'alice', 807);
+
+      addTearDown(tester.view.resetPhysicalSize);
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+
+      await tester.pumpWidget(wrap(_tmdbService({807: 'Abgebrochener Film'})));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Abbrechen'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Von Watchlist entfernen'), findsNothing);
+      expect(find.text('Abgebrochener Film'), findsOneWidget);
+
+      final swipeDoc = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .doc('alice_807')
+          .get();
+      expect(swipeDoc.exists, isTrue);
+      expect(swipeDoc.data()!['decision'], 'watchlist');
     });
   });
 }

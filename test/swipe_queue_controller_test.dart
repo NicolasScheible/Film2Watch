@@ -151,6 +151,41 @@ void main() {
       expect(queue.map((m) => m.tmdbId), isNot(contains(1)));
     });
 
+    test('nach dem Entfernen von der Watchlist erscheint der Film wieder in der Warteschlange', () async {
+      final firestore = FakeFirebaseFirestore();
+      final now = DateTime.now();
+      final swipeRef =
+          firestore.collection('groups').doc('g1').collection('swipes').doc('alice_1');
+      await swipeRef.set(MovieSwipe(
+        uid: 'alice',
+        movieId: 1,
+        decision: SwipeDecision.watchlist,
+        createdAt: now,
+        updatedAt: now,
+      ).toFirestore());
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final firstContainer = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(firstContainer.dispose);
+      await firstContainer.read(authStateChangesProvider.future);
+
+      final queueBefore = await firstContainer.read(swipeQueueControllerProvider('g1').future);
+      expect(queueBefore.map((m) => m.tmdbId), isNot(contains(1)));
+
+      // Echtes Löschen des Swipe-Dokuments (wie
+      // `SwipeRepository.removeSwipe`/"Watchlist entfernen"), dann ein
+      // kompletter Neuaufbau des Controllers (neuer Container) - genau wie
+      // beim tatsächlichen erneuten Öffnen des Swipe-Screens.
+      await swipeRef.delete();
+
+      final secondContainer = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(secondContainer.dispose);
+      await secondContainer.read(authStateChangesProvider.future);
+
+      final queueAfter = await secondContainer.read(swipeQueueControllerProvider('g1').future);
+      expect(queueAfter.map((m) => m.tmdbId), contains(1));
+    });
+
     test(
         'leere Warteschlange ohne Endlosschleife, wenn alle verfügbaren Filme bereits like/dislike/skip/watchlist bewertet wurden',
         () async {

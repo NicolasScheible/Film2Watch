@@ -211,6 +211,35 @@ class _WatchlistSection extends ConsumerWidget {
 
   final String groupId;
 
+  /// Bestätigungsdialog vor dem endgültigen Entfernen eines eigenen
+  /// Watchlist-Eintrags - verhindert ein versehentliches Löschen durch
+  /// einen einzelnen Tap. Löst das eigentliche Entfernen nur bei
+  /// ausdrücklicher Bestätigung aus; ein Abbrechen (oder Wegtippen des
+  /// Dialogs) lässt den Eintrag unverändert bestehen. Derselbe
+  /// `showDialog<bool>`/`AlertDialog`-Aufbau wie bei
+  /// `_LeaveOrDeleteButton._confirmLeave`/`_confirmDelete` - kein neues
+  /// UI-Muster.
+  Future<void> _confirmRemove(BuildContext context, WidgetRef ref, int movieId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Von Watchlist entfernen'),
+        content: const Text('Möchtest du diesen Film wirklich von deiner Watchlist entfernen?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Abbrechen')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Entfernen', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ref.read(watchlistRemoveControllerProvider(groupId).notifier).remove(movieId);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final watchlistAsync = ref.watch(groupWatchlistProvider(groupId));
@@ -256,11 +285,7 @@ class _WatchlistSection extends ConsumerWidget {
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => MovieDetailScreen(tmdbId: entry.movieId)),
                   ),
-                  onRemove: isOwnEntry
-                      ? () => ref
-                          .read(watchlistRemoveControllerProvider(groupId).notifier)
-                          .remove(entry.movieId)
-                      : null,
+                  onRemove: isOwnEntry ? () => _confirmRemove(context, ref, entry.movieId) : null,
                   isRemoving: removeState.isLoading && removingMovieId == entry.movieId,
                 ),
               );

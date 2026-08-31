@@ -289,6 +289,16 @@ void main() {
       expect(swipedIds, isNot(contains(701)));
     });
 
+    test('nach removeFromWatchlist kann derselbe Film normal neu geliked werden', () async {
+      await swipeService.watchlistMovie(groupId: groupId, uid: 'alice', movieId: 701);
+      await swipeService.removeFromWatchlist(groupId: groupId, uid: 'alice', movieId: 701);
+
+      await swipeService.likeMovie(groupId: groupId, uid: 'alice', movieId: 701);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 701);
+      expect(swipe!.decision, SwipeDecision.like);
+    });
+
     test('removeFromWatchlist eines nicht existierenden Eintrags wirft eine verständliche Exception', () async {
       expect(
         () => swipeService.removeFromWatchlist(groupId: groupId, uid: 'alice', movieId: 702),

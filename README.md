@@ -241,8 +241,12 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   öffnet wie bei Matches die bestehende `MovieDetailScreen`.
 - **Watchlist-Eintrag entfernen:** Auf der eigenen `WatchlistCard` erscheint oben rechts ein
   Entfernen-Button (nur, wenn der aktuelle User den Film tatsächlich selbst vorgemerkt hat – fremde
-  Einträge zeigen keinen Button und sind nicht entfernbar). Entfernen löscht das bestehende
-  Swipe-Dokument `groups/{groupId}/swipes/{uid}_{movieId}` vollständig
+  Einträge zeigen keinen Button und sind nicht entfernbar). Antippen öffnet zuerst einen
+  Bestätigungsdialog (`_WatchlistSection._confirmRemove` in `group_detail_screen.dart`, derselbe
+  `showDialog<bool>`/`AlertDialog`-Aufbau wie beim bestehenden „Gruppe verlassen"/„Gruppe
+  löschen"-Dialog, kein neues UI-Muster) – „Abbrechen" oder das Wegtippen des Dialogs lässt den
+  Eintrag unverändert bestehen, nur „Entfernen" löst das eigentliche Löschen aus. Entfernen löscht
+  das bestehende Swipe-Dokument `groups/{groupId}/swipes/{uid}_{movieId}` vollständig
   (`SwipeRepository.removeSwipe` → `SwipeService.removeFromWatchlist`, geprüft über
   `WatchlistRemoveController`), statt nur die `decision` zu ändern: Der Film gilt danach wieder als
   unbewertet und kann bei der nächsten Warteschlangen-Befüllung erneut in der eigenen Swipe-Queue
