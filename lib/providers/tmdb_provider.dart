@@ -30,3 +30,14 @@ final movieWatchProvidersProvider = FutureProvider.family<List<WatchProviderOpti
     return ref.watch(movieRepositoryProvider).getWatchProviders(tmdbId);
   },
 );
+
+/// TMDB-Genreliste für die Filterauswahl (§10).
+final movieGenresProvider = FutureProvider<Map<int, String>>((ref) {
+  return ref.watch(movieRepositoryProvider).getGenres();
+});
+
+/// Bei TMDB tatsächlich verfügbare Streaming-Anbieter für die
+/// Plattform-Filter-Auswahl (§10) - keine selbst erfundene Plattformliste.
+final watchProviderListProvider = FutureProvider<List<WatchProviderOption>>((ref) {
+  return ref.watch(movieRepositoryProvider).getAvailableWatchProviders();
+});

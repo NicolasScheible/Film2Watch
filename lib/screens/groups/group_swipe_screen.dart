@@ -6,6 +6,7 @@ import '../../models/movie.dart';
 import '../../models/movie_match.dart';
 import '../../providers/group_provider.dart';
 import '../../providers/match_provider.dart';
+import '../../providers/movie_filter_provider.dart';
 import '../../providers/swipe_action_controller.dart';
 import '../../providers/swipe_queue_controller.dart';
 import '../../providers/tmdb_provider.dart';
@@ -14,6 +15,7 @@ import '../../theme/app_theme.dart';
 import '../../utils/group_error_translator.dart';
 import '../../utils/tmdb_error_translator.dart';
 import '../movies/movie_detail_screen.dart';
+import '../movies/movie_filter_screen.dart';
 
 /// Echte Gruppen-Swipe-Oberfläche: Filme aus TMDB Discover, gefiltert um
 /// bereits vom aktuellen User bewertete Filme dieser Gruppe. Speichert Like/
@@ -78,6 +80,8 @@ class _GroupSwipeScreenState extends ConsumerState<GroupSwipeScreen> {
     final queueAsync = ref.watch(swipeQueueControllerProvider(widget.groupId));
     final actionState = ref.watch(swipeActionControllerProvider(widget.groupId));
     final groupName = ref.watch(groupProvider(widget.groupId)).value?.name;
+    final activeFilterCount =
+        ref.watch(movieFilterControllerProvider(widget.groupId)).activeCount;
 
     ref.listen(swipeActionControllerProvider(widget.groupId), (previous, next) {
       next.whenOrNull(
@@ -91,7 +95,22 @@ class _GroupSwipeScreenState extends ConsumerState<GroupSwipeScreen> {
     });
 
     return Scaffold(
-      appBar: AppBar(title: Text(groupName == null ? 'Swipe' : 'Swipe · $groupName')),
+      appBar: AppBar(
+        title: Text(groupName == null ? 'Swipe' : 'Swipe · $groupName'),
+        actions: [
+          IconButton(
+            tooltip: 'Filter',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => MovieFilterScreen(groupId: widget.groupId)),
+            ),
+            icon: Badge(
+              label: Text('$activeFilterCount'),
+              isLabelVisible: activeFilterCount > 0,
+              child: const Icon(Icons.tune),
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: queueAsync.when(
           data: (queue) {

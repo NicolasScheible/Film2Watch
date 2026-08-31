@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/movie.dart';
+import '../models/movie_filter.dart';
 import 'auth_provider.dart';
+import 'movie_filter_provider.dart';
 import 'swipe_provider.dart';
 import 'tmdb_provider.dart';
 
@@ -23,9 +25,14 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
   final Set<int> _excludedIds = {};
   int _tmdbPage = 0;
   bool _hasMoreTmdbPages = true;
+  MovieFilter _filter = MovieFilter.empty;
 
   @override
   Future<List<Movie>> build() async {
+    // `watch` statt `read`: jede Filteränderung löst automatisch einen
+    // kompletten Neuaufbau dieser Methode aus - die Warteschlange wird nie
+    // mit alten, unter dem vorherigen Filter geladenen Filmen weitergeführt.
+    _filter = ref.watch(movieFilterControllerProvider(groupId));
     _excludedIds.clear();
     _tmdbPage = 0;
     _hasMoreTmdbPages = true;
@@ -67,7 +74,9 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
 
     while (queue.length < _targetQueueSize && _hasMoreTmdbPages && attempts < _maxPagesPerFill) {
       attempts++;
-      final page = await ref.read(movieRepositoryProvider).discoverMovies(page: _tmdbPage + 1);
+      final page = await ref
+          .read(movieRepositoryProvider)
+          .discoverMovies(page: _tmdbPage + 1, filter: _filter);
       _tmdbPage = page.page;
       _hasMoreTmdbPages = page.hasNextPage;
 

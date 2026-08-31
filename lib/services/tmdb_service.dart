@@ -23,17 +23,49 @@ class TmdbService {
   static const _baseUrl = 'https://api.themoviedb.org/3';
   static const _timeout = Duration(seconds: 10);
 
+  /// [watchProviderId], [genreIds] (ODER-verknüpft, TMDB-Pipe-Syntax),
+  /// [yearFrom]/[yearTo] (über `primary_release_date.gte`/`.lte`),
+  /// [minRating] (`vote_average.gte`) und [runtimeFromMinutes]/
+  /// [runtimeToMinutes] (`with_runtime.gte`/`.lte`) sind optionale
+  /// TMDB-Discover-Filter (§10 der Master-Spezifikation) - werden nur
+  /// gesendet, wenn tatsächlich gesetzt.
   Future<Map<String, dynamic>> discoverMovies({
     required int page,
     String? language,
     String? region,
+    int? watchProviderId,
+    Set<int>? genreIds,
+    int? yearFrom,
+    int? yearTo,
+    double? minRating,
+    int? runtimeFromMinutes,
+    int? runtimeToMinutes,
   }) {
+    final effectiveRegion = region ?? TmdbConfig.defaultRegion;
     return _get('/discover/movie', {
       'page': '$page',
       'language': language ?? TmdbConfig.defaultLanguage,
-      'region': region ?? TmdbConfig.defaultRegion,
+      'region': effectiveRegion,
       'sort_by': 'popularity.desc',
       'include_adult': 'false',
+      if (watchProviderId != null) 'with_watch_providers': '$watchProviderId',
+      if (watchProviderId != null) 'watch_region': effectiveRegion,
+      if (watchProviderId != null) 'with_watch_monetization_types': 'flatrate',
+      if (genreIds != null && genreIds.isNotEmpty) 'with_genres': genreIds.join('|'),
+      if (yearFrom != null) 'primary_release_date.gte': '$yearFrom-01-01',
+      if (yearTo != null) 'primary_release_date.lte': '$yearTo-12-31',
+      if (minRating != null && minRating > 0) 'vote_average.gte': '$minRating',
+      if (runtimeFromMinutes != null) 'with_runtime.gte': '$runtimeFromMinutes',
+      if (runtimeToMinutes != null) 'with_runtime.lte': '$runtimeToMinutes',
+    });
+  }
+
+  /// Liste der bei TMDB für [region] verfügbaren Streaming-Anbieter
+  /// (`/watch/providers/movie`) - Grundlage für die Plattform-Filter-Auswahl
+  /// (§10). Echte TMDB-Daten statt einer selbst erfundenen Plattformliste.
+  Future<Map<String, dynamic>> watchProviderList({String? region}) {
+    return _get('/watch/providers/movie', {
+      'watch_region': region ?? TmdbConfig.defaultRegion,
     });
   }
 

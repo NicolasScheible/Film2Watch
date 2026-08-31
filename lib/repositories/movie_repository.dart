@@ -1,4 +1,5 @@
 import '../models/movie.dart';
+import '../models/movie_filter.dart';
 import '../models/movie_page.dart';
 import '../models/watch_provider_option.dart';
 import '../services/tmdb_service.dart';
@@ -15,13 +16,48 @@ class MovieRepository {
   final TmdbService _tmdbService;
 
   Map<int, String>? _genreNamesCache;
+  List<WatchProviderOption>? _watchProviderListCache;
   final Map<int, Movie> _detailsCache = {};
   static const _maxDetailsCacheSize = 100;
 
-  Future<MoviePage> discoverMovies({int page = 1}) async {
+  Future<MoviePage> discoverMovies({int page = 1, MovieFilter filter = MovieFilter.empty}) async {
     final genreNames = await _genreNames();
-    final json = await _tmdbService.discoverMovies(page: page);
+    final json = await _tmdbService.discoverMovies(
+      page: page,
+      watchProviderId: filter.watchProviderId,
+      genreIds: filter.genreIds,
+      yearFrom: filter.yearFrom,
+      yearTo: filter.yearTo,
+      minRating: filter.minRating,
+      runtimeFromMinutes: filter.runtimeFromMinutes,
+      runtimeToMinutes: filter.runtimeToMinutes,
+    );
     return _moviePageFromJson(json, genreNames);
+  }
+
+  /// Genres für die Filterauswahl (§10) - dieselbe TMDB-Genreliste, die auch
+  /// intern für die Anzeige der Filmgenres verwendet wird.
+  Future<Map<int, String>> getGenres() => _genreNames();
+
+  /// Bei TMDB für die konfigurierte Region tatsächlich verfügbare
+  /// Streaming-Anbieter (Abo/`flatrate`) - Grundlage der Plattform-Filter-
+  /// Auswahl (§10). Kein selbst erfundenes Plattform-Set.
+  Future<List<WatchProviderOption>> getAvailableWatchProviders({String? region}) async {
+    final cached = _watchProviderListCache;
+    if (cached != null) return cached;
+
+    final json = await _tmdbService.watchProviderList(region: region);
+    final results = json['results'];
+    final providers = results is List
+        ? results
+            .whereType<Map<String, dynamic>>()
+            .map(WatchProviderOption.fromTmdbJson)
+            .where((provider) => provider.providerId != 0 && provider.providerName.isNotEmpty)
+            .toList()
+        : <WatchProviderOption>[];
+    providers.sort((a, b) => a.providerName.compareTo(b.providerName));
+    _watchProviderListCache = providers;
+    return providers;
   }
 
   Future<MoviePage> searchMovies({required String query, int page = 1}) async {

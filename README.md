@@ -4,19 +4,19 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Globaler Swipe-Tab (zentraler Einstiegspunkt)**. Profil-, Freundes-,
-Profilbild-, Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht), Match-, Chat-, Push- und
-Onboarding-System aus den vorherigen Schritten unverändert. Der globale „Swipe"-Tab
-(`SwipeScreen`, §16 der Master-Spezifikation) war bisher ein reiner Platzhalter und zeigt jetzt
-die Gruppen des Nutzers – analog zum bestehenden `ChatScreen`-Muster. Tippen auf eine Gruppe
-öffnet den echten, bereits vollständig implementierten `GroupSwipeScreen` dieser Gruppe. Jeder
-Swipe bleibt weiterhin zwingend an genau eine Gruppe gebunden (§5/§17.4) – es gibt bewusst keinen
-gruppenlosen, aggregierten oder gruppenübergreifenden Swipe-Kontext, da die Master-Spezifikation
-dafür kein Datenmodell und keine Match-Semantik vorgibt.
+Aktueller Schritt: **Filtersystem für den Swipe-Bereich**. Profil-, Freundes-, Profilbild-,
+Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht), Match-, Chat-, Push-, Onboarding- und globaler
+Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. Innerhalb einer Gruppen-Swipe-Session
+(`GroupSwipeScreen`) kann jetzt nach Plattform, Genre, Erscheinungsjahr, Mindestbewertung und
+Filmlänge gefiltert werden (§10 der Master-Spezifikation), über einen neuen Filter-Button in der
+AppBar mit Badge für die Anzahl aktiver Kriterien. Die Filterauswahl ist bewusst rein
+session-lokal (kein Firestore, keine Persistenz) und pro Gruppe unabhängig; ein Filterwechsel baut
+die TMDB-Warteschlange vollständig neu auf, bereits geswipte Filme bleiben weiterhin
+ausgeschlossen. Details siehe „Filtersystem" unter „Swipe-Funktion" unten.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Trailer-Button, Boost-Algorithmus, Watchlist entfernen, Super Swipe/Premium,
-Filmabend-/Terminplanung, Werbung.
+Trailer-Button, Boost-Algorithmus, Watchlist entfernen, Super Swipe/Premium (inkl.
+Plattform-Mehrfachauswahl), Filmabend-/Terminplanung, Werbung.
 
 ## Tech-Stack
 
@@ -237,6 +237,44 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   werden.
 - **Leerer Zustand:** „Keine weiteren Filme verfügbar." wird ausschließlich angezeigt, wenn TMDB
   wirklich keine weiteren Seiten mehr liefert – kein endloser Ladeindikator.
+
+### Filtersystem (§10)
+
+- **Umfang:** Plattform (Einzelauswahl inkl. „Alle" im MVP – Mehrfachauswahl ist laut §15
+  ausdrücklich ein Premium-Feature und nicht Teil dieses Schritts), Genre (Mehrfachauswahl,
+  ODER-verknüpft), Erscheinungsjahr (Bereich „von/bis", 1900 bis aktuelles Jahr – dynamisch über
+  `DateTime.now()`, nicht hartkodiert), Mindestbewertung (native TMDB-`vote_average`-Skala 0–10)
+  und Filmlänge (Bereich „von/bis Minuten", 0–240). Alle konkreten Wertebereiche wurden explizit
+  mit dem Product Owner abgestimmt, da die Master-Spezifikation selbst keine Zahlen nennt.
+- **Architektur:** `MovieFilter` (`lib/models/movie_filter.dart`, reines Wert-Objekt, kein
+  Firestore-Modell) → `TmdbService.discoverMovies`/`watchProviderList` (native TMDB-Discover-
+  Parameter: `with_watch_providers`, `with_genres` mit Pipe-Syntax für ODER,
+  `primary_release_date.gte`/`.lte`, `vote_average.gte`, `with_runtime.gte`/`.lte`) →
+  `MovieRepository.discoverMovies(filter:)`/`getAvailableWatchProviders()`/`getGenres()` →
+  `MovieFilterController` (`movie_filter_provider.dart`, session-lokaler `Notifier` pro Gruppe) →
+  `SwipeQueueController` (liest den Filter per `ref.watch`, jeder Filterwechsel löst automatisch
+  einen vollständigen Neuaufbau der Warteschlange aus – keine alten, unter dem vorherigen Filter
+  geladenen Filme bleiben zurück) → `MovieFilterScreen` (UI). Keine zweite TMDB-Integration, keine
+  neue Firestore-Collection.
+- **Plattformliste:** Echte, bei TMDB für die konfigurierte Region tatsächlich verfügbare
+  Streaming-Anbieter (`/watch/providers/movie`, im `MovieRepository` gecacht) – keine selbst
+  erfundene Plattformliste.
+- **Persistenz:** Bewusst **keine** – die Master-Spezifikation verlangt an keiner Stelle eine
+  dauerhafte Speicherung der Filterauswahl. Der Filter ist eine reine Session-Einstellung
+  (`Notifier`-State, kein `ref.watch`/`.family` auf Firestore) und gilt individuell pro Nutzer und
+  Gruppe – ein Filterwechsel in einer Gruppe beeinflusst nie die Swipe-Session einer anderen
+  Gruppe oder eines anderen Mitglieds.
+- **Gruppenbezug:** Der Filter wirkt ausschließlich auf die eigene Warteschlange innerhalb der
+  aktuell gewählten Gruppe (`GroupSwipeScreen`) – kein gruppenloser Swipe, keine Änderung an der
+  strikten `groupId`-Bindung jedes Swipes.
+- **Bereits geswipte Filme:** Bleiben mit jedem Filter weiterhin ausgeschlossen
+  (`SwipeRepository.getSwipedMovieIds` unverändert, wirkt unabhängig vom aktiven Filter).
+- **UI:** `MovieFilterScreen`, erreichbar über ein Filter-Icon (`Icons.tune`) in der AppBar von
+  `GroupSwipeScreen` mit einem Badge für die Anzahl aktiver Filterkriterien. Änderungen werden erst
+  mit „Anwenden" übernommen; Zurück-Navigation ohne „Anwenden" verwirft den Entwurf, ohne den
+  aktiven Filter der Session zu verändern. „Zurücksetzen" ist deaktiviert, solange kein Filter aktiv
+  ist. Bestehendes Dark Theme (`AppColors`), keine neue Farbpalette, keine Fake-Daten – Plattformen
+  und Genres werden live von TMDB geladen.
 
 ## Match-System
 
