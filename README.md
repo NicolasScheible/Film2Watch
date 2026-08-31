@@ -725,6 +725,13 @@ des Token-Werts. `created_at`/`updated_at` sind serverseitige Timestamps
   gebaut auf der offiziellen YouTube-iFrame-API - kein YouTube-API-Key nötig, keine Secrets im
   Client. Der YouTube-Video-Key wird nur so lange gehalten, wie für Anzeige/Wiedergabe nötig
   (Repository-Cache, kein Firestore-Feld).
+- **Erreichbarkeit während des Swipens:** Ein Antippen (kein Ziehen) der `SwipeCard` in
+  `GroupSwipeScreen` öffnet dieselbe `MovieDetailScreen` samt Trailer-Button - der Trailer ist damit
+  auch während einer laufenden Swipe-Session erreichbar, ohne eine zweite Trailer-Implementierung
+  auf der Karte selbst. Tap und Wisch-Geste teilen sich denselben `GestureDetector`; Flutters
+  Gesten-Arena entscheidet zuverlässig zwischen beiden (ein Ziehen über die Wisch-Schwelle löst
+  ausschließlich den Swipe aus, nie zusätzlich die Navigation) - mit dedizierten Widget-Tests
+  abgesichert (`group_swipe_movie_detail_test.dart`).
 
 ### TMDB API Key (Secret-Handling)
 

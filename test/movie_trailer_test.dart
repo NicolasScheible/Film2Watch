@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:film2watch/models/movie_trailer.dart';
 import 'package:film2watch/repositories/movie_repository.dart';
@@ -165,6 +167,20 @@ void main() {
       final repository = MovieRepository(TmdbService(client, accessToken: 'test-token'));
 
       expect(() => repository.getTrailer(550), throwsA(isA<TmdbInvalidResponseException>()));
+    });
+
+    test('kein Internet (SocketException) wird als TmdbNetworkException durchgereicht', () async {
+      final client = MockClient((request) async => throw const SocketException('Keine Verbindung'));
+      final repository = MovieRepository(TmdbService(client, accessToken: 'test-token'));
+
+      expect(() => repository.getTrailer(550), throwsA(isA<TmdbNetworkException>()));
+    });
+
+    test('eine Zeitüberschreitung wird als TmdbNetworkException durchgereicht', () async {
+      final client = MockClient((request) async => throw TimeoutException('Zeitüberschreitung'));
+      final repository = MovieRepository(TmdbService(client, accessToken: 'test-token'));
+
+      expect(() => repository.getTrailer(550), throwsA(isA<TmdbNetworkException>()));
     });
   });
 
