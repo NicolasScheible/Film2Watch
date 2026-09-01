@@ -24,4 +24,18 @@ class PremiumRepository {
     if (!snapshot.exists) return false;
     return snapshot.data()?['is_premium'] == true;
   }
+
+  /// Reaktive Variante von [isPremium] - für UI, die den Premium-Status live
+  /// anzeigen soll (z. B. eine ehrliche Premium-Kennzeichnung am
+  /// Super-Swipe-Button), analog zu `UserRepository.watchUser`. Die
+  /// tatsächliche, sicherheitsrelevante Durchsetzung bleibt unabhängig davon
+  /// immer serverseitig (Firestore Rules `isPremium()`) - dieser Stream dient
+  /// ausschließlich der Darstellung, niemals als alleinige Zugriffskontrolle.
+  Stream<bool> watchIsPremium(String uid) {
+    return _firestore
+        .collection('premium_status')
+        .doc(uid)
+        .snapshots()
+        .map((snapshot) => snapshot.data()?['is_premium'] == true);
+  }
 }

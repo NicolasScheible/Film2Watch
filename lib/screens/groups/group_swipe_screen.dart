@@ -8,6 +8,7 @@ import '../../providers/group_provider.dart';
 import '../../providers/match_provider.dart';
 import '../../providers/movie_filter_provider.dart';
 import '../../providers/swipe_action_controller.dart';
+import '../../providers/swipe_provider.dart';
 import '../../providers/swipe_queue_controller.dart';
 import '../../providers/tmdb_provider.dart';
 import '../../services/tmdb_image_service.dart';
@@ -55,6 +56,8 @@ class _GroupSwipeScreenState extends ConsumerState<GroupSwipeScreen> {
         notifier.skip(movie.tmdbId, genreIds: movie.genreIds, castIds: movie.castIds);
       case SwipeCardDirection.watchlist:
         notifier.watchlist(movie.tmdbId, genreIds: movie.genreIds, castIds: movie.castIds);
+      case SwipeCardDirection.superSwipe:
+        notifier.superSwipe(movie.tmdbId, genreIds: movie.genreIds, castIds: movie.castIds);
     }
   }
 
@@ -82,6 +85,15 @@ class _GroupSwipeScreenState extends ConsumerState<GroupSwipeScreen> {
     final groupName = ref.watch(groupProvider(widget.groupId)).value?.name;
     final activeFilterCount =
         ref.watch(movieFilterControllerProvider(widget.groupId)).activeCount;
+    // Rein darstellend (§6/§15 "Super Swipe" ist ein Premium-Feature) - die
+    // eigentliche Durchsetzung bleibt serverseitig (`SwipeService.
+    // superSwipeMovie`/Firestore Rules); ein Free-User kann den Button
+    // trotzdem antippen und bekommt dieselbe ehrliche Fehlermeldung wie
+    // bisher über den bestehenden Fehler-Listener unten. Solange der Status
+    // noch lädt, wird nichts behauptet (kein Schloss, kein "Premium") - erst
+    // ein bestätigtes "false" zeigt das Schloss.
+    final isPremiumAsync = ref.watch(isPremiumProvider);
+    final isConfirmedFree = isPremiumAsync.hasValue && isPremiumAsync.value == false;
 
     ref.listen(swipeActionControllerProvider(widget.groupId), (previous, next) {
       next.whenOrNull(
@@ -167,6 +179,30 @@ class _GroupSwipeScreenState extends ConsumerState<GroupSwipeScreen> {
                         enabled: !isBusy,
                         onPressed: () => _cardKey.currentState?.triggerLike(),
                       ),
+                      // Super Swipe (§6/§15, Premium-Feature) - bleibt auch
+                      // für Free-User antippbar (ehrlich statt versteckt):
+                      // die Firestore Rules/`SwipeService.superSwipeMovie`
+                      // lehnen serverseitig ab, der bestehende Fehler-
+                      // Listener oben zeigt dann "Super Swipe ist ein
+                      // Premium-Feature." als SnackBar. Das Schloss-Badge
+                      // informiert nur vorab, ersetzt die Prüfung nicht.
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          _SwipeActionButton(
+                            icon: Icons.star_rounded,
+                            color: Colors.purpleAccent,
+                            enabled: !isBusy,
+                            onPressed: () => _cardKey.currentState?.triggerSuperSwipe(),
+                          ),
+                          if (isConfirmedFree)
+                            const Positioned(
+                              top: -2,
+                              right: -2,
+                              child: _PremiumLockBadge(),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 ],
@@ -210,6 +246,24 @@ class _SwipeActionButton extends StatelessWidget {
           child: Icon(icon, color: enabled ? color : AppColors.textSecondary, size: 32),
         ),
       ),
+    );
+  }
+}
+
+/// Kleines Schloss-Badge auf dem Super-Swipe-Button für bestätigte Free-User
+/// (§6/§15) - rein informativ, ersetzt nicht die serverseitige Prüfung.
+class _PremiumLockBadge extends StatelessWidget {
+  const _PremiumLockBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        shape: BoxShape.circle,
+      ),
+      child: const Icon(Icons.lock, size: 14, color: AppColors.textSecondary),
     );
   }
 }

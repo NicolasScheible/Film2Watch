@@ -195,5 +195,54 @@ void main() {
       expect(snapshot.docs, hasLength(1));
       expect(snapshot.docs.first.data()['decision'], 'watchlist');
     });
+
+    // Super Swipe (§6/§15, Premium-Feature) - die reine Speicher-/
+    // Gating-Logik ist bereits vollständig in swipe_service_test.dart
+    // abgedeckt; hier nur die Controller-Ebene (Loading-/Error-Zustand,
+    // Double-Submit), analog zu den bestehenden like/skip/watchlist-Tests
+    // oben.
+    test('Super Swipe landet im Erfolg und speichert decision == super, wenn der User Premium hat', () async {
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': true});
+      final notifier = container.read(swipeActionControllerProvider(groupId).notifier);
+
+      await notifier.superSwipe(8);
+
+      expect(container.read(swipeActionControllerProvider(groupId)).hasError, isFalse);
+      final swipe = await container
+          .read(swipeRepositoryProvider)
+          .getSwipe(groupId: groupId, uid: 'alice', movieId: 8);
+      expect(swipe, isNotNull);
+      expect(swipe!.decision, SwipeDecision.superSwipe);
+    });
+
+    test('Super Swipe landet im Error, wenn der User kein Premium hat (Free-User)', () async {
+      final notifier = container.read(swipeActionControllerProvider(groupId).notifier);
+
+      await notifier.superSwipe(9);
+
+      expect(container.read(swipeActionControllerProvider(groupId)).hasError, isTrue);
+      final swipe = await container
+          .read(swipeRepositoryProvider)
+          .getSwipe(groupId: groupId, uid: 'alice', movieId: 9);
+      expect(swipe, isNull);
+    });
+
+    test('mehrfaches schnelles Super-Swipen (Double-Submit) erzeugt nur einen einzigen Swipe', () async {
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': true});
+      final notifier = container.read(swipeActionControllerProvider(groupId).notifier);
+
+      final first = notifier.superSwipe(10);
+      final second = notifier.superSwipe(10);
+      await Future.wait([first, second]);
+
+      final snapshot = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .where('movie_id', isEqualTo: 10)
+          .get();
+      expect(snapshot.docs, hasLength(1));
+      expect(snapshot.docs.first.data()['decision'], 'super');
+    });
   });
 }

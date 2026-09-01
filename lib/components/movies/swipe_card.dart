@@ -4,7 +4,7 @@ import '../../models/movie.dart';
 import '../../services/tmdb_image_service.dart';
 import '../../theme/app_theme.dart';
 
-enum SwipeCardDirection { like, dislike, skip, watchlist }
+enum SwipeCardDirection { like, dislike, skip, watchlist, superSwipe }
 
 /// Eine zieh-/wischbare Filmkarte. Buttons steuern dieselbe Karte über
 /// [SwipeCardState.triggerLike]/[SwipeCardState.triggerDislike]/
@@ -15,6 +15,13 @@ enum SwipeCardDirection { like, dislike, skip, watchlist }
 /// "Vielleicht später" - beide blenden den Film laut Produktspezifikation
 /// nur für den aktuellen Nutzer aus, das setzt ausschließlich [onSwiped]
 /// um, ohne eigene Ausblend-Logik hier in der Karte.
+///
+/// [SwipeCardState.triggerSuperSwipe] (§6/§15, Premium-Feature) hat
+/// bewusst KEINE eigene Zieh-Geste - alle vier Zug-Richtungen sind bereits
+/// mit Like/Dislike/Skip/Watchlist belegt, eine Diagonale würde mit der
+/// Badge-Anzeige der bestehenden Richtungen kollidieren. Stattdessen ein
+/// eigenständiger Skalier-/Fade-Effekt (siehe `_superSwiping`), nur über
+/// einen dedizierten Button auslösbar.
 class SwipeCard extends StatefulWidget {
   const SwipeCard({
     super.key,
@@ -38,6 +45,10 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
   Animation<Offset>? _animation;
   Offset _dragOffset = Offset.zero;
   bool _dragging = false;
+  // Super Swipe animiert nicht über [_dragOffset] (siehe Klassendoku) -
+  // eigener Zustand, damit die vier bestehenden Richtungs-Badges während
+  // dieser Animation unverändert bei Opazität 0 bleiben.
+  bool _superSwiping = false;
 
   @override
   void initState() {
@@ -68,8 +79,23 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
 
   void triggerWatchlist() => _fling(SwipeCardDirection.watchlist);
 
+  /// Löst einen Super Swipe aus (§6/§15, Premium-Feature - die eigentliche
+  /// Premium-Prüfung passiert serverseitig in `SwipeService.superSwipeMovie`/
+  /// den Firestore Rules, nicht hier). Eigener Skalier-/Fade-Effekt statt
+  /// eines gerichteten Flings, siehe Klassendoku.
+  void triggerSuperSwipe() {
+    if (!widget.isEnabled || _superSwiping) return;
+    setState(() => _superSwiping = true);
+    _controller
+      ..reset()
+      ..forward().whenComplete(() {
+        widget.onSwiped(SwipeCardDirection.superSwipe);
+        if (mounted) setState(() => _superSwiping = false);
+      });
+  }
+
   void _fling(SwipeCardDirection direction) {
-    if (!widget.isEnabled) return;
+    if (!widget.isEnabled || _superSwiping) return;
     final size = MediaQuery.of(context).size;
     final Offset target;
     switch (direction) {
@@ -81,6 +107,11 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
         target = Offset(_dragOffset.dx, size.height * 1.2);
       case SwipeCardDirection.watchlist:
         target = Offset(_dragOffset.dx, -size.height * 1.2);
+      case SwipeCardDirection.superSwipe:
+        // Wird nie über diesen Pfad ausgelöst - Super Swipe hat keine
+        // Zug-Geste (siehe Klassendoku) und läuft ausschließlich über
+        // [triggerSuperSwipe], nie über [_fling]/[_onPanEnd].
+        throw StateError('Super Swipe hat keine Zug-Geste.');
     }
     _runAnimation(target, onComplete: () => widget.onSwiped(direction));
   }
@@ -97,7 +128,7 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
   }
 
   void _onPanStart(DragStartDetails details) {
-    if (!widget.isEnabled) return;
+    if (!widget.isEnabled || _superSwiping) return;
     _controller.stop();
     _dragging = true;
   }
@@ -132,7 +163,7 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
     final skipOpacity = (_dragOffset.dy / _swipeThreshold).clamp(0.0, 1.0);
     final watchlistOpacity = (-_dragOffset.dy / _swipeThreshold).clamp(0.0, 1.0);
 
-    return GestureDetector(
+    final card = GestureDetector(
       onPanStart: _onPanStart,
       onPanUpdate: _onPanUpdate,
       onPanEnd: _onPanEnd,
@@ -177,6 +208,32 @@ class SwipeCardState extends State<SwipeCard> with SingleTickerProviderStateMixi
           ),
         ),
       ),
+    );
+
+    if (!_superSwiping) return card;
+
+    // Super Swipe: eigenständiger Skalier-/Fade-Effekt statt eines
+    // gerichteten Flings (siehe Klassendoku) - `_dragOffset` bleibt dabei
+    // bei Zero, die vier Richtungs-Badges oben bleiben unsichtbar.
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final t = _controller.value;
+        return Opacity(
+          opacity: (1 - t).clamp(0.0, 1.0),
+          child: Transform.scale(
+            scale: 1 + t * 0.15,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                child!,
+                _DirectionBadge(label: 'SUPER SWIPE', color: Colors.purpleAccent, opacity: t),
+              ],
+            ),
+          ),
+        );
+      },
+      child: card,
     );
   }
 }

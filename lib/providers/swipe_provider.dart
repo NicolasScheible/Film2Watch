@@ -18,6 +18,19 @@ final premiumRepositoryProvider = Provider<PremiumRepository>((ref) {
   return PremiumRepository(ref.watch(firestoreProvider));
 });
 
+/// Reaktiver Premium-Status des aktuell eingeloggten Users - Grundlage für
+/// eine ehrliche Premium-Gating-Anzeige (z. B. am Super-Swipe-Button, siehe
+/// `GroupSwipeScreen`). Rein darstellend: die tatsächliche Durchsetzung
+/// erfolgt unabhängig davon immer serverseitig (`SwipeService.superSwipeMovie`
+/// + Firestore Rules `isPremium()`) - ein veralteter/fehlender Wert hier
+/// kann also nie mehr Rechte gewähren, als der Server ohnehin prüft. `false`,
+/// solange kein User eingeloggt ist.
+final isPremiumProvider = StreamProvider<bool>((ref) {
+  final uid = ref.watch(authStateChangesProvider).value?.uid;
+  if (uid == null) return Stream.value(false);
+  return ref.watch(premiumRepositoryProvider).watchIsPremium(uid);
+});
+
 final swipeServiceProvider = Provider<SwipeService>((ref) {
   return SwipeService(
     ref.watch(swipeRepositoryProvider),

@@ -174,5 +174,64 @@ void main() {
 
       expect(result, isNull);
     });
+
+    // Super Swipe (§6/§15, Premium-Feature) hat bewusst keine eigene
+    // Zug-Geste - alle vier Richtungen sind bereits belegt (siehe
+    // Klassendoku in swipe_card.dart) - deshalb kein Drag-Gesten-Test hier,
+    // nur der button-/GlobalKey-basierte Auslöser.
+    testWidgets('triggerSuperSwipe() über den GlobalKey löst SwipeCardDirection.superSwipe aus', (tester) async {
+      SwipeCardDirection? result;
+      final key = GlobalKey<SwipeCardState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SwipeCard(key: key, movie: _movie(), onSwiped: (direction) => result = direction),
+          ),
+        ),
+      );
+
+      key.currentState!.triggerSuperSwipe();
+      await tester.pumpAndSettle();
+
+      expect(result, SwipeCardDirection.superSwipe);
+    });
+
+    testWidgets('deaktivierte Karte reagiert nicht auf triggerSuperSwipe()', (tester) async {
+      SwipeCardDirection? result;
+      final key = GlobalKey<SwipeCardState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SwipeCard(
+              key: key,
+              movie: _movie(),
+              isEnabled: false,
+              onSwiped: (direction) => result = direction,
+            ),
+          ),
+        ),
+      );
+
+      key.currentState!.triggerSuperSwipe();
+      await tester.pumpAndSettle();
+
+      expect(result, isNull);
+    });
+
+    testWidgets('eine normale Zug-Geste löst weiterhin nie superSwipe aus (Regression)', (tester) async {
+      SwipeCardDirection? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SwipeCard(movie: _movie(), onSwiped: (direction) => result = direction),
+          ),
+        ),
+      );
+
+      await tester.drag(find.byType(SwipeCard), const Offset(300, 0));
+      await tester.pumpAndSettle();
+
+      expect(result, isNot(SwipeCardDirection.superSwipe));
+    });
   });
 }
