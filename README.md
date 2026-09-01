@@ -4,22 +4,24 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Super-Swipe-UI (§6/§15)**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-,
-Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button, Watchlist-Eintrag entfernen und
-vollem Boost-Algorithmus inkl. Cast-Anti-Boost), Match-, Chat-, Push-, Onboarding- und globaler
-Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. Das Daten-/Service-/Rules-/
-Match-Erkennungs-Fundament für Super Swipe war bereits vollständig implementiert und getestet
-(siehe „Super Swipe" unten); der einzige zuvor offene Punkt - ein tatsächlicher UI-Auslöser, da die
-Master-Spezifikation keine Interaktion dafür beschreibt und alle vier Wisch-Richtungen bereits
-belegt sind - ist jetzt ergänzt: ein fünfter Button neben den bestehenden vier Aktions-Buttons, mit
-einer ehrlichen (aber niemals allein entscheidenden) Premium-Kennzeichnung für Free-User.
+Aktueller Schritt: **Filmabend-/Terminplanung (§12)**. Profil-, Freundes-, Profilbild-, Gruppen-,
+TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button, Watchlist-Eintrag entfernen,
+vollem Boost-Algorithmus inkl. Cast-Anti-Boost und Super-Swipe-UI), Match-, Chat-, Push-, Onboarding-
+und globaler Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. §12 der Master-Spezifikation
+selbst widerspricht sich in der Priorisierung (§19s MVP-Liste enthält den Punkt nicht, §21 nennt nur
+die deutlich komplexere „Filmabend-Abstimmung" als „später") - **mit dem Produktverantwortlichen
+abgestimmt**: umgesetzt wird ausschließlich die einfache §12-Variante (ein einzelner Terminvorschlag:
+Datum/Uhrzeit/Plattform + Reminder-Push, optional ein bereits gematchter Film), **keine**
+Abstimmung/Mehrfachauswahl/RSVP - „Filmabend-Abstimmung" (§21) bleibt weiterhin explizit
+zurückgestellt. Siehe „Filmabend-/Terminplanung" unten für die vollständige Herleitung.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
 Boost-Bonus für Super Swipe (Master-Spezifikation nennt keinen Wert), **echte Premium-Aktivierung**
 (RevenueCat/App-Store-/Play-Store-Abo - benötigt
 externe Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; nur das
 Datenmodell/Gating ist bereits fertig), sowie die übrigen Premium-Vorteile aus §15 (werbefrei,
-erweiterte Filter, unbegrenzte Gruppen, Statistiken), Filmabend-/Terminplanung, Werbung.
+erweiterte Filter, unbegrenzte Gruppen, Statistiken), Filmabend-**Abstimmung** (§21: Doodle-artige
+Mehrfachoptionen-Abstimmung unter den Mitgliedern), RSVP/Zusagen, zeitgesteuerte Reminder, Werbung.
 
 ## Tech-Stack
 
@@ -485,6 +487,78 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   dieselbe, bereits bestehende Firestore-Rules-Leseerlaubnis) und öffnet keinen neuen Schreibpfad -
   ein veralteter/fehlender Wert in dieser rein darstellenden Anzeige kann nie mehr Rechte gewähren,
   als der Server ohnehin unabhängig prüft.
+
+## Filmabend-/Terminplanung (§12)
+
+- **Exakte Vorgabe & Widerspruch in der Master-Spezifikation:** §12 überschreibt „Filmabend planen"
+  wörtlich als „optional, aber im MVP enthalten", mit dem konkreten Umfang „Datum, Uhrzeit und
+  Plattform" + Reminder-Push. §19 (die offizielle 10-Punkte-MVP-Prioritätsliste) führt diesen Punkt
+  jedoch **nicht** auf. §21 (Ausblick, explizit „nicht im MVP, kommt später") nennt stattdessen
+  „**Filmabend-Abstimmung**" – einen Begriff, der auf eine deutlich komplexere, Doodle-artige
+  Mehrfachoptionen-Abstimmung unter den Mitgliedern hindeutet. Dieser Widerspruch (einfacher
+  Terminvorschlag laut §12 MVP-relevant vs. §19/§21, die auf „später" bzw. gar keine Erwähnung
+  hindeuten) wurde beim allerersten Spezifikations-Audit dieses Projekts bereits als
+  „⚠️ Architektur-/Produktentscheidung erforderlich" markiert und bewusst nicht selbst aufgelöst.
+- **Mit dem Product Owner abgestimmte Auflösung** (explizit nachgefragt, nichts erfunden):
+  - **Umfang:** „Filmabend planen" (§12) und „Filmabend-Abstimmung" (§21) sind **zwei getrennte
+    Features unterschiedlicher Komplexität**. Umgesetzt wird ausschließlich die einfache
+    §12-Variante: ein einzelner Terminvorschlag (Datum, Uhrzeit, Plattform), **keine**
+    Abstimmung/Mehrfachauswahl/Voting. §21s „Filmabend-Abstimmung" bleibt wie zuvor explizit
+    zurückgestellt.
+  - **Filmbezug:** kein Pflichtfeld. Ein Filmabend kann optional **genau einen** Film referenzieren,
+    ausschließlich einen bereits bestehenden Gruppen-Match – kein beliebiger TMDB-Film, keine
+    Mehrfachauswahl.
+  - **Berechtigungen:** jedes Gruppenmitglied darf einen Filmabend anlegen. Bearbeiten und
+    Absagen/Löschen dürfen ausschließlich der Ersteller selbst oder der Gruppen-Admin – andere
+    normale Mitglieder dürfen fremde Filmabende weder bearbeiten noch absagen.
+  - **Teilnahme/Reminder:** kein RSVP, keine Zu-/Absage-Liste pro Mitglied. Der in §12 genannte
+    Reminder-Push wird direkt bei der Erstellung verschickt (kein zeitgesteuerter Reminder vor dem
+    Termin – das würde eine neue, in diesem Schritt nicht vorgesehene Scheduling-Infrastruktur wie
+    Cloud Scheduler benötigen).
+- **Architektur:** exakt dem bestehenden Standard folgend – `MovieNightRepository`
+  (`groups/{groupId}/movie_nights`, Firestore Auto-ID wie `messages`) → `MovieNightService`
+  (Mitgliedschafts-/Berechtigungsprüfung, validiert einen optionalen `movie_id` gegen
+  `MatchRepository.isMatch()` – neue, minimale Ergänzung von `MatchRepository`, keine neue
+  Match-Infrastruktur) → `MovieNightActionController` (Double-Submit-Schutz, identisches Muster wie
+  `SwipeActionController`/`ChatSendController`) → UI. Keine direkten Firestore-Zugriffe aus Widgets.
+- **UI:** neue „Filmabende"-Sektion in `GroupDetailScreen` (zwischen Watchlist und Mitgliederliste,
+  analog zu den bestehenden Matches-/Watchlist-Sektionen) mit „Planen"-Button und `MovieNightCard`
+  pro geplantem Termin. `MovieNightFormScreen` dient sowohl dem Anlegen als auch dem Bearbeiten
+  (`existing`-Parameter) – Datum/Uhrzeit über die eingebauten `showDatePicker`/`showTimePicker`,
+  Plattform-Auswahl über denselben, bereits bestehenden TMDB-Watch-Provider-Datenbestand wie im
+  Filtersystem (§10, `watchProviderListProvider`/`WatchProviderOption`) – keine neue
+  Plattform-Modellierung, nur eine eigene, kompaktere Auswahl-Widget-Variante für das Formular (das
+  bestehende `_PlatformSelector` der Filterseite bleibt unangetastet). Der optionale Film wird aus
+  den bestehenden Gruppen-Matches gewählt (`MatchCard` wiederverwendet, hier als Auswahl-Kachel statt
+  als Navigations-Link). Ein Tap auf eine Filmabend-Karte öffnet das Bearbeiten-Formular nur, wenn
+  der aktuelle User dazu berechtigt ist (Ersteller oder Admin) – sonst bleibt die Karte rein
+  informativ. Vollständige Loading-/Empty-/Error-/Erfolgs-Zustände; „Absagen" fragt vorher über einen
+  Bestätigungsdialog nach (identisches Muster wie „Watchlist entfernen"/Gruppe verlassen/löschen).
+- **Datenmodell:** `groups/{groupId}/movie_nights/{movieNightId}` – `created_by` (uid, unveränderlich),
+  `created_at`/`updated_at` (ausschließlich `FieldValue.serverTimestamp()`), `scheduled_at`
+  (kombinierter Datum+Uhrzeit-Zeitpunkt – §12 nennt beides als zusammengehörige Angabe, keine zwei
+  redundanten Felder), `platform_id` (TMDB-`provider_id`, Pflicht), `movie_id` (optional, TMDB-Movie-ID
+  eines bestehenden Gruppen-Matches). Keine vollständigen TMDB-/Film-Daten dupliziert, keine
+  Teilnahme-/RSVP-Felder.
+- **Security:** `firestore.rules` erzwingt serverseitig exakt dieselben Berechtigungen wie oben
+  beschrieben – `allow create` prüft Mitgliedschaft + `created_by == request.auth.uid` +
+  `created_at/updated_at == request.time` (keine Client-Zeit) + Typprüfung + die
+  Match-Existenzprüfung für `movie_id` + `hasOnly` gegen unzulässige Zusatzfelder. `allow update`
+  erzwingt zusätzlich Ersteller-oder-Admin sowie die Unveränderlichkeit von `created_by`/`created_at`.
+  `allow delete` (Absagen) erlaubt ausschließlich Ersteller oder Admin. Kein Client kann sich selbst
+  oder anderen Zugriff auf fremde Gruppen verschaffen, keine UID-/Zeitstempel-Manipulation möglich,
+  keine unzulässigen Felder einschleusbar.
+- **Push-Notification:** `notifyMovieNightCreated.js` (exakter Aufbau wie `notifyChatMessage.js`,
+  keine neue Notification-Architektur) sendet bei der Erstellung eines Filmabends einen Push an alle
+  *anderen* Gruppenmitglieder – der Ersteller bekommt nie eine eigene Notification, Empfänger werden
+  serverseitig aus der echten `members`-Subcollection ermittelt (nie aus einer Client-Liste). Über
+  `onMovieNightCreated` (`.onCreate`-Trigger in `functions/index.js`) ausgelöst – ein Bearbeiten oder
+  Absagen löst bewusst **keine** weitere Notification aus (§12 definiert nur die Erstellung als
+  Benachrichtigungsereignis). Idempotent über das bestehende `claimNotification`-Muster (schützt vor
+  doppeltem Versand bei „at-least-once"-Ausführung). Tippen auf die Notification öffnet die Gruppe
+  (`NotificationType.movieNight`, identisches Ziel wie eine Match-Notification).
+- **Was bewusst nicht Teil dieses Schritts ist:** Filmabend-Abstimmung/Voting (§21), RSVP/Zusagen,
+  zeitgesteuerte Reminder, Kalender-Export, Watch Party.
 
 ## Match-System
 
