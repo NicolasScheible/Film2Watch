@@ -4,27 +4,22 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Cast-Anti-Boost „gleicher Hauptdarsteller" (§7/§18)**. Profil-, Freundes-,
-Profilbild-, Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button,
-Watchlist-Eintrag entfernen, vollem Boost-Algorithmus und Super Swipe), Match-, Chat-, Push-,
-Onboarding- und globaler Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. Der zuvor
-zurückgestellte zweite Anti-Boost-Faktor aus §7 („Ein Dislike senkt den Score ähnlicher Filme
-(gleiches Genre, gleicher Hauptdarsteller) leicht (–10)") ist jetzt ebenfalls umgesetzt: eine neue
-TMDB-Credits-Integration (`TmdbService.movieCredits`) liefert die Top-3-Hauptdarsteller-IDs eines
-Films, ein Dislike senkt darüber zusätzlich zum bestehenden Genre-Anti-Boost auch den Score
-zukünftiger Kandidaten mit überschneidender Hauptbesetzung – siehe „Boost-Algorithmus" unten für die
-vollständige Herleitung inkl. der mit dem Produktverantwortlichen abgestimmten
-„Hauptdarsteller"-Definition.
+Aktueller Schritt: **Super-Swipe-UI (§6/§15)**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-,
+Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button, Watchlist-Eintrag entfernen und
+vollem Boost-Algorithmus inkl. Cast-Anti-Boost), Match-, Chat-, Push-, Onboarding- und globaler
+Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. Das Daten-/Service-/Rules-/
+Match-Erkennungs-Fundament für Super Swipe war bereits vollständig implementiert und getestet
+(siehe „Super Swipe" unten); der einzige zuvor offene Punkt - ein tatsächlicher UI-Auslöser, da die
+Master-Spezifikation keine Interaktion dafür beschreibt und alle vier Wisch-Richtungen bereits
+belegt sind - ist jetzt ergänzt: ein fünfter Button neben den bestehenden vier Aktions-Buttons, mit
+einer ehrlichen (aber niemals allein entscheidenden) Premium-Kennzeichnung für Free-User.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
 Boost-Bonus für Super Swipe (Master-Spezifikation nennt keinen Wert), **echte Premium-Aktivierung**
 (RevenueCat/App-Store-/Play-Store-Abo - benötigt
 externe Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; nur das
 Datenmodell/Gating ist bereits fertig), sowie die übrigen Premium-Vorteile aus §15 (werbefrei,
-erweiterte Filter, unbegrenzte Gruppen, Statistiken), Filmabend-/Terminplanung, Werbung. Ebenfalls
-noch offen: eine UI/Geste, mit der ein Nutzer einen Super Swipe tatsächlich auslöst - die
-Master-Spezifikation beschreibt dafür keine konkrete Interaktion (die vier bestehenden
-Wisch-Richtungen sind bereits belegt).
+erweiterte Filter, unbegrenzte Gruppen, Statistiken), Filmabend-/Terminplanung, Werbung.
 
 ## Tech-Stack
 
@@ -459,15 +454,24 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   überhaupt geschrieben wird (die Firestore Rules erzwingen dieselbe Prüfung serverseitig zusätzlich
   über `isPremium()`, niemals nur clientseitig vertraut) und delegiert dann an denselben
   `SwipeRepository.setSwipe()`-Pfad wie alle anderen Entscheidungen – keine zweite
-  Speicher-Infrastruktur. `SwipeActionController.superSwipe()` existiert als vollständige,
-  getestete Controller-Methode; **noch keine UI/Geste ruft sie auf** (siehe „Noch nicht
-  implementiert" oben – die Master-Spezifikation beschreibt keine Interaktion dafür, die vier
-  Wisch-Richtungen sind bereits belegt, ein Erfinden einer eigenen Geste war nicht Teil dieses
-  Schritts).
+  Speicher-Infrastruktur. `SwipeActionController.superSwipe()` war bereits als vollständige,
+  getestete Controller-Methode vorhanden; ein UI-Auslöser fehlte noch.
+- **UI (dieser Schritt):** `SwipeCard` bekommt eine fünfte `SwipeCardDirection` (`superSwipe`) -
+  bewusst **ohne eigene Zug-Geste** (alle vier Richtungen sind bereits belegt, siehe oben), sondern
+  ausschließlich über einen neuen, fünften Button (⭐) neben den bestehenden vier Aktions-Buttons in
+  `GroupSwipeScreen` auslösbar (`SwipeCardState.triggerSuperSwipe()`, eigener Skalier-/Fade-Effekt
+  statt eines gerichteten Flings, damit er nicht mit den bestehenden Richtungs-Badges kollidiert).
+  Für einen bestätigten Free-User zeigt der Button ein kleines Schloss-Badge - rein informativ; der
+  Button bleibt für alle antippbar, ein Free-User bekommt beim Tippen die bereits bestehende, echte
+  Fehlermeldung „Super Swipe ist ein Premium-Feature." (`GroupActionException` aus
+  `SwipeService.superSwipeMovie`, über den bestehenden Fehler-Listener als SnackBar) statt eines
+  versteckten oder vorgetäuschten Features. Neuer, rein lesender `isPremiumProvider`
+  (`PremiumRepository.watchIsPremium`, live) speist ausschließlich diese Anzeige - die serverseitige
+  Durchsetzung bleibt unabhängig davon vollständig bestehen.
 - **Datenmodell:** `super` als fünfter, gleichrangiger `decision`-Wert auf
   `groups/{groupId}/swipes/{uid}_{movieId}` (exakt der in §17.4 vorgegebene String – `super` ist ein
   reserviertes Dart-Schlüsselwort, daher intern `SwipeDecision.superSwipe` mit einer expliziten
-  `firestoreValue`-Zuordnung statt eines blinden `.name`). Neue Collection `premium_status/{uid}`
+  `firestoreValue`-Zuordnung statt eines blinden `.name`). Collection `premium_status/{uid}`
   (`is_premium: bool`).
 - **Security:** `premium_status/{userId}`: nur der eigene User darf lesen, **niemand** darf
   clientseitig schreiben (auch nicht der Owner selbst) – analog zu `user_preferences`/`matches`.
@@ -476,7 +480,11 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   `premium_status/{uid}`) erfüllt ist – ein Client kann weder sein eigenes Kontingent noch seinen
   Premium-Status fälschen, und der Premium-Status eines anderen Users hat keinen Einfluss auf die
   eigene Berechtigung. Match-Erkennung bleibt atomar/idempotent (unveränderte Transaktion in
-  `evaluateMatch`) – ein Super Swipe kann sie nicht umgehen oder doppelt auslösen.
+  `evaluateMatch`) – ein Super Swipe kann sie nicht umgehen oder doppelt auslösen. Der neue
+  `isPremiumProvider` liest ausschließlich den eigenen Premium-Status des eingeloggten Users (über
+  dieselbe, bereits bestehende Firestore-Rules-Leseerlaubnis) und öffnet keinen neuen Schreibpfad -
+  ein veralteter/fehlender Wert in dieser rein darstellenden Anzeige kann nie mehr Rechte gewähren,
+  als der Server ohnehin unabhängig prüft.
 
 ## Match-System
 
