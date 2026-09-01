@@ -306,6 +306,58 @@ service cloud.firestore {
         allow update: if false;
         allow delete: if false;
       }
+
+      // Geplante Filmabende (§12: "Filmabend planen" - Datum/Uhrzeit/
+      // Plattform + optional ein Film, KEINE Abstimmung/RSVP, siehe §21,
+      // ausdrücklich zurückgestellt). Firestore Auto-ID, eine Gruppe kann
+      // mehrere geplante Filmabende gleichzeitig haben. Jedes Mitglied darf
+      // anlegen; bearbeiten/absagen darf ausschließlich der Ersteller selbst
+      // oder ein Admin der Gruppe - mit dem Produktverantwortlichen
+      // abgestimmt. `created_by`/`created_at` sind nach dem Anlegen
+      // unveränderlich (wie bei `groups`); `updated_at` muss bei jedem
+      // Schreibvorgang der echte Server-Zeitpunkt sein - die lokale
+      // Gerätezeit ist keine vertrauenswürdige Quelle. Ein optionaler
+      // `movie_id` darf ausschließlich auf ein bereits bestehendes
+      // Gruppen-Match zeigen (kein beliebiger TMDB-Film) - dieselbe
+      // deterministische Match-Dokument-ID wie bei `matches` oben.
+      // `hasOnly` verhindert zusätzliche, nicht vorgesehene Felder.
+      match /movie_nights/{movieNightId} {
+        allow read: if isGroupMember(groupId);
+
+        allow create: if isGroupMember(groupId)
+          && request.auth.uid == request.resource.data.created_by
+          && request.resource.data.created_at == request.time
+          && request.resource.data.updated_at == request.time
+          && request.resource.data.scheduled_at is timestamp
+          && request.resource.data.platform_id is int
+          && (!('movie_id' in request.resource.data) || (
+               request.resource.data.movie_id is int
+               && exists(/databases/$(database)/documents/groups/$(groupId)/matches/$(string(request.resource.data.movie_id)))
+             ))
+          && request.resource.data.keys().hasOnly(
+               ['created_by', 'created_at', 'updated_at', 'scheduled_at', 'platform_id', 'movie_id']
+             );
+
+        allow update: if isGroupMember(groupId)
+          && (request.auth.uid == resource.data.created_by || isGroupAdmin(groupId))
+          && request.resource.data.created_by == resource.data.created_by
+          && request.resource.data.created_at == resource.data.created_at
+          && request.resource.data.updated_at == request.time
+          && request.resource.data.scheduled_at is timestamp
+          && request.resource.data.platform_id is int
+          && (!('movie_id' in request.resource.data) || (
+               request.resource.data.movie_id is int
+               && exists(/databases/$(database)/documents/groups/$(groupId)/matches/$(string(request.resource.data.movie_id)))
+             ))
+          && request.resource.data.keys().hasOnly(
+               ['created_by', 'created_at', 'updated_at', 'scheduled_at', 'platform_id', 'movie_id']
+             );
+
+        // Absagen/Löschen (§12: austauschbare Begriffe für dieselbe Aktion,
+        // kein separater "abgesagt"-Status).
+        allow delete: if isGroupMember(groupId)
+          && (request.auth.uid == resource.data.created_by || isGroupAdmin(groupId));
+      }
     }
 
     // Offene Gruppeneinladungen. Dokument-ID ist deterministisch

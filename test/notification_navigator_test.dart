@@ -76,6 +76,15 @@ void main() {
       expect(find.byType(GroupChatScreen), findsOneWidget);
     });
 
+    testWidgets('movie_night navigiert zur Gruppe', (tester) async {
+      await pumpBase(tester);
+      navigateForNotification(
+        NotificationPayload(type: NotificationType.movieNight, groupId: groupId),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(GroupDetailScreen), findsOneWidget);
+    });
+
     testWidgets('unknown navigiert nirgendwohin', (tester) async {
       await pumpBase(tester);
       navigateForNotification(const NotificationPayload(type: NotificationType.unknown));

@@ -30,6 +30,15 @@ class _MovieNightFormScreenState extends ConsumerState<MovieNightFormScreen> {
   int? _platformId;
   int? _movieId;
 
+  // Unterscheidet einen echten, vom User ausgelösten Abschluss (create/edit/
+  // cancel) von der erstmaligen, rein internen Auflösung von
+  // `movieNightActionControllerProvider`s eigenem `build()` (AsyncLoading ->
+  // AsyncData direkt nach dem allerersten Mounten dieses Screens, noch bevor
+  // der User irgendetwas getan hat) - ohne dieses Flag würde der Screen sich
+  // sofort nach dem Öffnen selbst wieder schließen, weil auch diese interne
+  // Auflösung wie ein "Loading -> Erfolg"-Übergang aussieht.
+  bool _didSubmit = false;
+
   bool get _isEditing => widget.existing != null;
 
   @override
@@ -71,6 +80,7 @@ class _MovieNightFormScreenState extends ConsumerState<MovieNightFormScreen> {
       return;
     }
 
+    _didSubmit = true;
     final notifier = ref.read(movieNightActionControllerProvider(widget.groupId).notifier);
     final existing = widget.existing;
     if (existing == null) {
@@ -102,6 +112,7 @@ class _MovieNightFormScreenState extends ConsumerState<MovieNightFormScreen> {
       ),
     );
     if (confirmed == true && mounted) {
+      _didSubmit = true;
       await ref
           .read(movieNightActionControllerProvider(widget.groupId).notifier)
           .cancel(widget.existing!.id);
@@ -120,10 +131,11 @@ class _MovieNightFormScreenState extends ConsumerState<MovieNightFormScreen> {
         error: (error, _) => ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(translateMovieNightError(error)))),
         data: (_) {
-          // Nur nach einem tatsächlichen Abschluss (nicht beim initialen
-          // `build()`-Leerzustand) automatisch schließen - analog zu
-          // `EditProfileScreen`.
-          if (previous?.isLoading ?? false) {
+          // Nur nach einem echten, vom User ausgelösten Abschluss schließen
+          // (siehe `_didSubmit`) - nicht bei der erstmaligen, rein internen
+          // Auflösung des Controllers selbst.
+          if (_didSubmit) {
+            _didSubmit = false;
             Navigator.of(context).pop();
           }
         },

@@ -8,6 +8,7 @@ const { notifyFriendRequest } = require('./notifyFriendRequest');
 const { notifyGroupInvitation } = require('./notifyGroupInvitation');
 const { notifyMatch } = require('./notifyMatch');
 const { notifyChatMessage } = require('./notifyChatMessage');
+const { notifyMovieNightCreated } = require('./notifyMovieNightCreated');
 const { postMatchChatMessage } = require('./postMatchChatMessage');
 
 admin.initializeApp();
@@ -190,6 +191,35 @@ exports.onChatMessageCreated = functions.firestore
       functions.logger.error('Chat-Notification fehlgeschlagen', {
         groupId: context.params.groupId,
         messageId: context.params.messageId,
+        error: error.message,
+      });
+    }
+    return null;
+  });
+
+/**
+ * Reminder-Push bei der Erstellung eines Filmabends (§12: "Filmabend
+ * planen"). Nur die Erstellung ist ein Notification-Ereignis - ein
+ * nachträgliches Bearbeiten oder Absagen löst bewusst keinen weiteren Push
+ * aus (mit dem Produktverantwortlichen abgestimmt, kein zeitgesteuerter
+ * Reminder, siehe `notifyMovieNightCreated.js`).
+ */
+exports.onMovieNightCreated = functions.firestore
+  .document('groups/{groupId}/movie_nights/{movieNightId}')
+  .onCreate(async (snapshot, context) => {
+    try {
+      const data = snapshot.data();
+      await notifyMovieNightCreated({
+        firestore: admin.firestore(),
+        messaging: admin.messaging(),
+        groupId: context.params.groupId,
+        movieNightRef: snapshot.ref,
+        createdBy: data.created_by,
+      });
+    } catch (error) {
+      functions.logger.error('Filmabend-Notification fehlgeschlagen', {
+        groupId: context.params.groupId,
+        movieNightId: context.params.movieNightId,
         error: error.message,
       });
     }

@@ -35,6 +35,11 @@ void navigateForNotification(NotificationPayload payload) {
       if (groupId != null) {
         navigator.push(MaterialPageRoute(builder: (_) => GroupChatScreen(groupId: groupId)));
       }
+    case NotificationType.movieNight:
+      final groupId = payload.groupId;
+      if (groupId != null) {
+        navigator.push(MaterialPageRoute(builder: (_) => GroupDetailScreen(groupId: groupId)));
+      }
     case NotificationType.unknown:
       break;
   }
