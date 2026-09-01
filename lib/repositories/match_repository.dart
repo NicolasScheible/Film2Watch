@@ -25,4 +25,14 @@ class MatchRepository {
         .snapshots()
         .map((snapshot) => snapshot.docs.map(MovieMatch.fromFirestore).toList());
   }
+
+  /// Prüft, ob [movieId] ein bestehendes Match dieser Gruppe ist - Grundlage
+  /// für die Validierung des optionalen Filmabend-Films (§12: darf
+  /// ausschließlich ein bereits gematchter Film sein, kein beliebiger
+  /// TMDB-Film). Dokument-ID ist deterministisch die movieId (siehe
+  /// `functions/matchEngine.js`).
+  Future<bool> isMatch(String groupId, int movieId) async {
+    final snapshot = await _matches(groupId).doc(movieId.toString()).get();
+    return snapshot.exists;
+  }
 }
