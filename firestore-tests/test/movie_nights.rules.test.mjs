@@ -5,11 +5,19 @@ import {
   assertFails,
   assertSucceeds,
 } from '@firebase/rules-unit-testing';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/firestore';
 
 // Testet die tatsächliche firestore.rules-Datei des Repos gegen den echten
 // lokalen Firestore-Emulator für geplante Filmabende (§12: "Filmabend
 // planen"). Kein Voting/RSVP (§21 bleibt ausdrücklich zurückgestellt) - nur
 // Anlegen/Bearbeiten/Absagen eines einzelnen Terminvorschlags.
+//
+// `created_at`/`updated_at` müssen laut Rules exakt `request.time` sein -
+// dafür MUSS `FieldValue.serverTimestamp()` verwendet werden (ein simples
+// `new Date()` ist eine Client-Zeit und wird von den Rules zu Recht
+// abgelehnt), analog zu `messages.rules.test.mjs`.
+const serverTimestamp = () => firebase.firestore.FieldValue.serverTimestamp();
 
 let testEnv;
 const now = () => new Date();
@@ -17,8 +25,8 @@ const now = () => new Date();
 function validMovieNight(overrides = {}) {
   return {
     created_by: 'alice',
-    created_at: now(),
-    updated_at: now(),
+    created_at: serverTimestamp(),
+    updated_at: serverTimestamp(),
     scheduled_at: now(),
     platform_id: 8,
     ...overrides,
@@ -125,7 +133,7 @@ describe('groups/{groupId}/movie_nights/{movieNightId}', () => {
       db.collection('groups/mngroup1/movie_nights').add({
         created_by: 'carol_member',
         created_at: new Date('2020-01-01'),
-        updated_at: now(),
+        updated_at: serverTimestamp(),
         scheduled_at: now(),
         platform_id: 8,
       }),
@@ -137,8 +145,8 @@ describe('groups/{groupId}/movie_nights/{movieNightId}', () => {
     await assertFails(
       db.collection('groups/mngroup1/movie_nights').add({
         created_by: 'carol_member',
-        created_at: now(),
-        updated_at: now(),
+        created_at: serverTimestamp(),
+        updated_at: serverTimestamp(),
         scheduled_at: 'morgen',
         platform_id: 8,
       }),
@@ -195,7 +203,7 @@ describe('groups/{groupId}/movie_nights/{movieNightId}', () => {
     const db = testEnv.authenticatedContext('bob').firestore();
     await assertSucceeds(
       db.doc('groups/mngroup1/movie_nights/bobs-night').update({
-        updated_at: now(),
+        updated_at: serverTimestamp(),
         scheduled_at: now(),
         platform_id: 9,
       }),
@@ -206,7 +214,7 @@ describe('groups/{groupId}/movie_nights/{movieNightId}', () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
       db.doc('groups/mngroup1/movie_nights/bobs-night').update({
-        updated_at: now(),
+        updated_at: serverTimestamp(),
         scheduled_at: now(),
         platform_id: 10,
       }),
@@ -217,7 +225,7 @@ describe('groups/{groupId}/movie_nights/{movieNightId}', () => {
     const db = testEnv.authenticatedContext('carol_member').firestore();
     await assertFails(
       db.doc('groups/mngroup1/movie_nights/bobs-night').update({
-        updated_at: now(),
+        updated_at: serverTimestamp(),
         scheduled_at: now(),
         platform_id: 11,
       }),
@@ -229,7 +237,7 @@ describe('groups/{groupId}/movie_nights/{movieNightId}', () => {
     await assertFails(
       db.doc('groups/mngroup1/movie_nights/bobs-night').update({
         created_by: 'carol_member',
-        updated_at: now(),
+        updated_at: serverTimestamp(),
         scheduled_at: now(),
         platform_id: 8,
       }),
@@ -241,7 +249,7 @@ describe('groups/{groupId}/movie_nights/{movieNightId}', () => {
     await assertFails(
       db.doc('groups/mngroup1/movie_nights/bobs-night').update({
         created_at: new Date('1999-01-01'),
-        updated_at: now(),
+        updated_at: serverTimestamp(),
         scheduled_at: now(),
         platform_id: 8,
       }),
