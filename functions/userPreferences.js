@@ -17,9 +17,12 @@
  *   Like-Historie"). Nur Likes tragen bei - Dislikes fließen bewusst nicht
  *   negativ in dieselbe Zahl ein, das leistet bereits der separate
  *   Anti-Boost.
- * - **Anti-Boost**: reine Zählung, wie oft der User ein Genre bereits
- *   disliked hat, ohne Zeitverfall (§7 nennt den Verfall ausdrücklich nur
- *   für "ältere Likes").
+ * - **Genre-/Cast-Anti-Boost**: reine Zählung, wie oft der User ein Genre
+ *   bzw. einen der Top-3-Hauptdarsteller (siehe `selectMainCastIds` im
+ *   Dart-Code) eines Films bereits disliked hat, ohne Zeitverfall (§7 nennt
+ *   den Verfall ausdrücklich nur für "ältere Likes"). "Hauptdarsteller" =
+ *   die Top-3-Cast-Einträge nach TMDBs eigener `order`-Sortierung - mit dem
+ *   Produktverantwortlichen abgestimmt (§7 selbst nennt keine Zahl).
  * - **Zeitbasierter Verfall**: linear über 30 Tage auf 0 (konkreter Wert
  *   ist in der Master-Spezifikation nicht vorgegeben - mit dem
  *   Produktverantwortlichen abgestimmt).
@@ -82,13 +85,15 @@ async function updateUserGenrePreferences({ firestore, uid, now = new Date() }) 
 
   const genreAffinity = new Map();
   const dislikedGenres = new Map();
+  const dislikedCastIds = new Map();
 
   for (const doc of swipesSnap.docs) {
     const data = doc.data();
     const genreIds = Array.isArray(data.genre_ids) ? data.genre_ids : [];
-    if (genreIds.length === 0) continue;
+    const castIds = Array.isArray(data.cast_ids) ? data.cast_ids : [];
 
     if (data.decision === 'like') {
+      if (genreIds.length === 0) continue;
       const likedAt = toDate(data.created_at, now);
       const weight = decayWeight(likedAt, now);
       if (weight <= 0) continue;
@@ -100,6 +105,10 @@ async function updateUserGenrePreferences({ firestore, uid, now = new Date() }) 
       for (const genreId of genreIds) {
         if (typeof genreId !== 'number') continue;
         dislikedGenres.set(genreId, (dislikedGenres.get(genreId) ?? 0) + 1);
+      }
+      for (const castId of castIds) {
+        if (typeof castId !== 'number') continue;
+        dislikedCastIds.set(castId, (dislikedCastIds.get(castId) ?? 0) + 1);
       }
     }
   }
@@ -119,10 +128,16 @@ async function updateUserGenrePreferences({ firestore, uid, now = new Date() }) 
       genre_affinity: mapToObject(genreAffinity),
       disliked_genres: mapToObject(dislikedGenres),
       top_genres: topGenres,
+      disliked_cast_ids: mapToObject(dislikedCastIds),
       last_updated: now,
     });
 
-  return { topGenres, genreAffinity: mapToObject(genreAffinity), dislikedGenres: mapToObject(dislikedGenres) };
+  return {
+    topGenres,
+    genreAffinity: mapToObject(genreAffinity),
+    dislikedGenres: mapToObject(dislikedGenres),
+    dislikedCastIds: mapToObject(dislikedCastIds),
+  };
 }
 
 module.exports = {

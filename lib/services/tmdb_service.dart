@@ -106,6 +106,16 @@ class TmdbService {
     });
   }
 
+  /// Besetzung eines Films (`/movie/{id}/credits`) - Grundlage für den
+  /// Cast-Anti-Boost (§7: "gleicher Hauptdarsteller"). TMDB liefert das
+  /// `cast`-Array bereits aufsteigend nach `order` sortiert (0 = am
+  /// prominentesten billed) - keine eigene Sortierung nötig. Kein
+  /// `language`-Parameter, da für den Boost ausschließlich die numerischen
+  /// Personen-IDs relevant sind, keine (lokalisierten) Namen.
+  Future<Map<String, dynamic>> movieCredits(int tmdbId) {
+    return _get('/movie/$tmdbId/credits', const {});
+  }
+
   Future<Map<String, dynamic>> _get(String path, Map<String, String> queryParameters) async {
     if (accessToken.isEmpty) {
       throw const TmdbNotConfiguredException();

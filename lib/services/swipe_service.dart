@@ -19,6 +19,7 @@ class SwipeService {
     required String uid,
     required int movieId,
     List<int> genreIds = const [],
+    List<int> castIds = const [],
   }) {
     return _swipe(
       groupId: groupId,
@@ -26,6 +27,7 @@ class SwipeService {
       movieId: movieId,
       decision: SwipeDecision.like,
       genreIds: genreIds,
+      castIds: castIds,
     );
   }
 
@@ -34,6 +36,7 @@ class SwipeService {
     required String uid,
     required int movieId,
     List<int> genreIds = const [],
+    List<int> castIds = const [],
   }) {
     return _swipe(
       groupId: groupId,
@@ -41,6 +44,7 @@ class SwipeService {
       movieId: movieId,
       decision: SwipeDecision.dislike,
       genreIds: genreIds,
+      castIds: castIds,
     );
   }
 
@@ -54,6 +58,7 @@ class SwipeService {
     required String uid,
     required int movieId,
     List<int> genreIds = const [],
+    List<int> castIds = const [],
   }) {
     return _swipe(
       groupId: groupId,
@@ -61,6 +66,7 @@ class SwipeService {
       movieId: movieId,
       decision: SwipeDecision.skip,
       genreIds: genreIds,
+      castIds: castIds,
     );
   }
 
@@ -74,6 +80,7 @@ class SwipeService {
     required String uid,
     required int movieId,
     List<int> genreIds = const [],
+    List<int> castIds = const [],
   }) {
     return _swipe(
       groupId: groupId,
@@ -81,6 +88,7 @@ class SwipeService {
       movieId: movieId,
       decision: SwipeDecision.watchlist,
       genreIds: genreIds,
+      castIds: castIds,
     );
   }
 
@@ -97,6 +105,7 @@ class SwipeService {
     required String uid,
     required int movieId,
     List<int> genreIds = const [],
+    List<int> castIds = const [],
   }) async {
     final isPremium = await _premiumRepository.isPremium(uid);
     if (!isPremium) {
@@ -108,6 +117,7 @@ class SwipeService {
       movieId: movieId,
       decision: SwipeDecision.superSwipe,
       genreIds: genreIds,
+      castIds: castIds,
     );
   }
 
@@ -140,6 +150,7 @@ class SwipeService {
     required int movieId,
     required SwipeDecision decision,
     List<int> genreIds = const [],
+    List<int> castIds = const [],
   }) async {
     final member = await _groupRepository.getMember(groupId, uid);
     if (member == null) {
@@ -151,6 +162,7 @@ class SwipeService {
       movieId: movieId,
       decision: decision,
       genreIds: genreIds,
+      castIds: castIds,
     );
   }
 }

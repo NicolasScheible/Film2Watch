@@ -26,9 +26,9 @@ class SwipeRepository {
   }
 
   /// Legt die Entscheidung an oder aktualisiert eine bestehende - niemals ein
-  /// zweites Dokument für dasselbe (uid, movieId)-Paar. [genreIds] wird nur
-  /// beim erstmaligen Anlegen gespeichert (wie `created_at` danach
-  /// unveränderlich, siehe Firestore Rules) - ein erneutes Bewerten
+  /// zweites Dokument für dasselbe (uid, movieId)-Paar. [genreIds]/[castIds]
+  /// werden nur beim erstmaligen Anlegen gespeichert (wie `created_at`
+  /// danach unveränderlich, siehe Firestore Rules) - ein erneutes Bewerten
   /// desselben Films ändert nur `decision`/`updated_at`.
   Future<void> setSwipe({
     required String groupId,
@@ -36,6 +36,7 @@ class SwipeRepository {
     required int movieId,
     required SwipeDecision decision,
     List<int> genreIds = const [],
+    List<int> castIds = const [],
   }) async {
     final ref = _swipes(groupId).doc(_swipeId(uid, movieId));
     final existing = await ref.get();
@@ -43,7 +44,13 @@ class SwipeRepository {
 
     if (existing.exists) {
       await ref.update({
-        'decision': decision.name,
+        // `.firestoreValue` statt `.name`: für `SwipeDecision.superSwipe`
+        // ist das der einzig korrekte, in den Firestore Rules/§17.4-Schema
+        // erwartete String `'super'` (`.name` würde fälschlich
+        // `'superSwipe'` schreiben - `super` ist ein reserviertes
+        // Dart-Schlüsselwort und kann nicht als Enum-Bezeichner verwendet
+        // werden).
+        'decision': decision.firestoreValue,
         'updated_at': Timestamp.fromDate(now),
       });
       return;
@@ -56,6 +63,7 @@ class SwipeRepository {
       createdAt: now,
       updatedAt: now,
       genreIds: genreIds,
+      castIds: castIds,
     );
     await ref.set(swipe.toFirestore());
   }

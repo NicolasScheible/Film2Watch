@@ -231,22 +231,24 @@ service cloud.firestore {
           && swipeId == request.resource.data.uid + '_' + string(request.resource.data.movie_id)
           && (request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist']
             || (request.resource.data.decision == 'super' && isPremium(request.auth.uid)))
-          // genre_ids (§7/§18 Boost-Algorithmus: Genre-Präferenz/Anti-Boost)
-          // sind optional (ältere Clients senden sie ggf. nicht), aber falls
-          // vorhanden ausschließlich eine Liste numerischer TMDB-Genre-IDs -
-          // keine vollständigen Filmdaten.
-          && (!('genre_ids' in request.resource.data) || request.resource.data.genre_ids is list);
+          // genre_ids/cast_ids (§7/§18 Boost-Algorithmus: Genre-/Cast-
+          // Präferenz/Anti-Boost) sind optional (ältere Clients senden sie
+          // ggf. nicht), aber falls vorhanden ausschließlich eine Liste
+          // numerischer TMDB-IDs - keine vollständigen Filmdaten.
+          && (!('genre_ids' in request.resource.data) || request.resource.data.genre_ids is list)
+          && (!('cast_ids' in request.resource.data) || request.resource.data.cast_ids is list);
 
         allow update: if isGroupMember(groupId)
           && request.auth.uid == resource.data.uid
           && request.resource.data.uid == resource.data.uid
           && request.resource.data.movie_id == resource.data.movie_id
           && request.resource.data.created_at == resource.data.created_at
-          // genre_ids ist wie movie_id/created_at nach dem Anlegen
+          // genre_ids/cast_ids sind wie movie_id/created_at nach dem Anlegen
           // unveränderlich - ein erneutes Bewerten desselben Films ändert
           // nur die Entscheidung, nie die zum Anlege-Zeitpunkt erfassten
-          // Genres.
+          // Genres/Hauptdarsteller.
           && request.resource.data.get('genre_ids', null) == resource.data.get('genre_ids', null)
+          && request.resource.data.get('cast_ids', null) == resource.data.get('cast_ids', null)
           && (request.resource.data.decision in ['like', 'dislike', 'skip', 'watchlist']
             || (request.resource.data.decision == 'super' && isPremium(request.auth.uid)));
 

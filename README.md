@@ -4,20 +4,21 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Super Swipe (§6/§15)**. Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-,
-Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button, Watchlist-Eintrag entfernen und
-vollem Boost-Algorithmus), Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den
-vorherigen Schritten unverändert. Der fünfte Swipe-Typ „Super Swipe" (Premium-Feature) ist jetzt als
-eigene `SwipeDecision` implementiert - zählt für die Match-Erkennung wie ein Like, hat aber (noch)
-keinen eigenen Boost-Bonus, da die Master-Spezifikation dafür keinen Wert nennt. Rein binäres
-Premium-Gating (kein Kontingent/Zähler), serverseitig über eine neue `premium_status/{uid}`-
-Collection durchgesetzt - siehe „Super Swipe" unter „Swipe-Funktion" unten für die vollständige
-Herleitung und die mit dem Produktverantwortlichen abgestimmten offenen Punkte.
+Aktueller Schritt: **Cast-Anti-Boost „gleicher Hauptdarsteller" (§7/§18)**. Profil-, Freundes-,
+Profilbild-, Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button,
+Watchlist-Eintrag entfernen, vollem Boost-Algorithmus und Super Swipe), Match-, Chat-, Push-,
+Onboarding- und globaler Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. Der zuvor
+zurückgestellte zweite Anti-Boost-Faktor aus §7 („Ein Dislike senkt den Score ähnlicher Filme
+(gleiches Genre, gleicher Hauptdarsteller) leicht (–10)") ist jetzt ebenfalls umgesetzt: eine neue
+TMDB-Credits-Integration (`TmdbService.movieCredits`) liefert die Top-3-Hauptdarsteller-IDs eines
+Films, ein Dislike senkt darüber zusätzlich zum bestehenden Genre-Anti-Boost auch den Score
+zukünftiger Kandidaten mit überschneidender Hauptbesetzung – siehe „Boost-Algorithmus" unten für die
+vollständige Herleitung inkl. der mit dem Produktverantwortlichen abgestimmten
+„Hauptdarsteller"-Definition.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Anti-Boost über „gleicher Hauptdarsteller" (erfordert eine neue TMDB-Credits-Integration, bewusst
-zurückgestellt - siehe „Boost-Algorithmus" unten), Boost-Bonus für Super Swipe (Master-Spezifikation
-nennt keinen Wert), **echte Premium-Aktivierung** (RevenueCat/App-Store-/Play-Store-Abo - benötigt
+Boost-Bonus für Super Swipe (Master-Spezifikation nennt keinen Wert), **echte Premium-Aktivierung**
+(RevenueCat/App-Store-/Play-Store-Abo - benötigt
 externe Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; nur das
 Datenmodell/Gating ist bereits fertig), sowie die übrigen Premium-Vorteile aus §15 (werbefrei,
 erweiterte Filter, unbegrenzte Gruppen, Statistiken), Filmabend-/Terminplanung, Werbung. Ebenfalls
@@ -169,15 +170,16 @@ tatsächliches Gruppenbild in der App erscheinen.
 
 | Collection | Zweck | Zugriff |
 |---|---|---|
-| `groups/{groupId}/swipes/{uid}_{movieId}` | Like/Dislike/Skip/Watchlist/Super-Swipe-Entscheidung eines Mitglieds zu einem Film (`uid, movie_id, decision, created_at, updated_at`, optional `genre_ids`) | lesbar für alle Mitglieder der Gruppe, schreibbar nur für den eigenen Swipe (`decision == 'super'` zusätzlich nur mit Premium-Status); löschbar nur für den eigenen Swipe, wenn `decision == 'watchlist'` (Watchlist-Eintrag entfernen) – Like/Dislike/Skip/Super bleiben unlöschbar |
-| `user_preferences/{uid}` | Personalisierter Boost-Zustand für den Genre-Bonus/Anti-Boost (§7/§18/§17.4): `genre_affinity`, `disliked_genres`, `top_genres`, `last_updated` | lesbar nur für den eigenen User; schreibbar für niemanden clientseitig – ausschließlich die Cloud Function `functions/userPreferences.js` (Admin-SDK) schreibt |
+| `groups/{groupId}/swipes/{uid}_{movieId}` | Like/Dislike/Skip/Watchlist/Super-Swipe-Entscheidung eines Mitglieds zu einem Film (`uid, movie_id, decision, created_at, updated_at`, optional `genre_ids`, optional `cast_ids`) | lesbar für alle Mitglieder der Gruppe, schreibbar nur für den eigenen Swipe (`decision == 'super'` zusätzlich nur mit Premium-Status); löschbar nur für den eigenen Swipe, wenn `decision == 'watchlist'` (Watchlist-Eintrag entfernen) – Like/Dislike/Skip/Super bleiben unlöschbar |
+| `user_preferences/{uid}` | Personalisierter Boost-Zustand für den Genre-/Cast-Bonus/Anti-Boost (§7/§18/§17.4): `genre_affinity`, `disliked_genres`, `top_genres`, `disliked_cast_ids`, `last_updated` | lesbar nur für den eigenen User; schreibbar für niemanden clientseitig – ausschließlich die Cloud Function `functions/userPreferences.js` (Admin-SDK) schreibt |
 | `premium_status/{uid}` | Premium-Status für Super Swipe und weitere §15-Vorteile (§6/§15): `is_premium` | lesbar nur für den eigenen User; schreibbar für niemanden clientseitig – die tatsächliche Aktivierung (RevenueCat/Store-Abo, §18) ist offene externe Konfiguration, nicht Teil dieses Repositories |
 
 Es wird **keine** vollständige TMDB-JSON-Antwort in Firestore gespeichert – nur die
 Entscheidung selbst (`movie_id` + `like`/`dislike`/`skip`/`watchlist`/`super`) und, für den
-Boost-Algorithmus, die TMDB-Genre-IDs des Films zum Swipe-Zeitpunkt (`genre_ids`, nur numerische
-IDs). TMDB bleibt für alle eigentlichen Filmdaten (Titel, Poster, Beschreibung, ...) die alleinige
-Quelle.
+Boost-Algorithmus, die TMDB-Genre-IDs (`genre_ids`) sowie die Top-3-Hauptdarsteller-IDs (`cast_ids`)
+des Films zum Swipe-Zeitpunkt (jeweils nur numerische IDs, keine Namen/Bilder/vollständigen
+Cast-Daten). TMDB bleibt für alle eigentlichen Filmdaten (Titel, Poster, Beschreibung, ...) die
+alleinige Quelle.
 
 **Deterministische Dokument-ID `{uid}_{movieId}`:** Ein erneutes Bewerten desselben Films durch
 denselben User in derselben Gruppe aktualisiert die bestehende Entscheidung (`update`), statt ein
@@ -324,12 +326,12 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   - **Genre-Präferenz-Speicherung:** TMDB-Genre-IDs werden zusätzlich auf jedem Swipe-Dokument
     gespeichert (`genre_ids`, nur numerische IDs, keine vollständigen Filmdaten), statt sie bei
     jeder Berechnung erneut von TMDB abzufragen.
-  - **Anti-Boost-Umfang:** vorerst ausschließlich „gleiches Genre" – der „gleicher
-    Hauptdarsteller"-Teil ist zurückgestellt, da dafür eine komplett neue TMDB-Credits-Integration
-    nötig wäre, die es in der App noch nicht gibt (siehe „Noch nicht implementiert" oben).
+  - **Anti-Boost-Umfang:** beide in §7 genannten Kriterien sind umgesetzt – „gleiches Genre" (dieser
+    Schritt) und „gleicher Hauptdarsteller" (siehe „Cast-Anti-Boost" unten).
   - **Zeitbasierter Verfall:** linearer Verfall über 30 Tage (Gewicht 1,0 am Tag des Likes, linear
     auf 0 nach 30 Tagen) – gilt für die Genre-Präferenz, nicht für den (weiterhin ungedämpften)
-    Freundes-Boost, den bereits der vorherige MVP-Schritt getestet hat.
+    Freundes-Boost, den bereits der vorherige MVP-Schritt getestet hat, und nicht für die beiden
+    Anti-Boost-Faktoren (§7 nennt den Verfall ausdrücklich nur für „ältere Likes").
   - „**Oft geliked**" (Schwelle für den Genre-Grund-Boost): die Top-3-Genres eines Users nach
     zeitverfallsgewichteter Like-Anzahl.
   - **Freundes-Boost bleibt kumulativ** (+40 je Freund, der einen Film geliked hat, nicht nur
@@ -374,6 +376,59 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   Rolle wie `movie_id`/`created_at`. Ein Nutzer kann über den Boost niemals selbst einen Match
   erzeugen und niemals Daten einer fremden Gruppe oder eines fremden Users in die eigene Berechnung
   einschleusen.
+
+### Cast-Anti-Boost „gleicher Hauptdarsteller" (§7/§18)
+
+- **Exakte Vorgabe (§7):** derselbe Satz wie beim Genre-Anti-Boost oben – „Ein Dislike senkt den
+  Score ähnlicher Filme leicht (–10), gleiches Genre, gleicher Hauptdarsteller." Der Genre-Teil war
+  bereits umgesetzt (siehe „Boost-Algorithmus" oben); dieser Schritt ergänzt den zweiten,
+  gleichrangigen Kriterium.
+- **Mit dem Product Owner abgestimmter Wert** (die Master-Spezifikation nennt keine Zahl, wie viele
+  Cast-Einträge als „Hauptdarsteller" zählen – erfunden wurde hier bewusst nichts, sondern vor der
+  Implementierung explizit nachgefragt): **die Top 3** Einträge aus TMDBs `/movie/{id}/credits`, das
+  `cast`-Array ist dort bereits nach TMDBs eigenem `order`-Feld sortiert (0 = am prominentesten
+  billed). Konsistent mit der bereits bestehenden „Top-3-Genres"-Regel für die Genre-Präferenz im
+  selben Boost-System. Gilt symmetrisch für beide Seiten des Vergleichs (gedislikter Film UND
+  Kandidat).
+- **TMDB-Credits-Integration:** neuer `TmdbService.movieCredits(tmdbId)`-Endpunkt
+  (`/movie/{id}/credits`, derselbe Bearer-Token/dieselbe Fehlerbehandlung wie alle anderen
+  TMDB-Aufrufe – kein neuer API-Key, kein eigenes HTTP-Setup). `selectMainCastIds()`
+  (`lib/models/movie_cast.dart`) wählt daraus die Top-3-Personen-IDs (robust gegenüber fehlenden/
+  unvollständigen Cast-Daten – ein einzelner ungültiger Eintrag wird übersprungen statt die ganze
+  Liste zu verwerfen, ein fehlendes `cast`-Array ergibt eine leere Liste statt eines Fehlers).
+- **Caching/Performance:** `MovieRepository.getMainCastIds()` cached das Ergebnis pro `tmdbId`
+  (gleiche, bereits bestehende, auf 100 Einträge begrenzte In-Memory-Cache-Strategie wie
+  `getMovieDetails`/`getTrailer`) – ein Film wird über die App-Laufzeit höchstens einmal abgefragt.
+  `SwipeQueueController._withCastIds()` reichert jede frisch von TMDB geladene Warteschlangen-Seite
+  parallel an (`Future.wait`, begrenzt auf die durch `_maxPagesPerFill` gedeckelte Seitenzahl pro
+  Auffüll-Vorgang – keine unkontrollierte Anzahl gleichzeitiger Requests). Schlägt der
+  Credits-Abruf für einen einzelnen Film fehl (TMDB-Fehler, Rate-Limit, Timeout, ...), bleibt dieser
+  Film trotzdem in der Warteschlange – nur ohne Cast-Anti-Boost-Signal für diesen einen Film; ein
+  einzelner TMDB-Fehler blockiert nie die gesamte Swipe-Funktion.
+- **Boost-Formel:** `computeBoostScore()`/`sortByBoostScore()` (`lib/utils/boost.dart`) bekommen
+  einen zusätzlichen, zum Genre-Anti-Boost strukturell identischen Term: –10 je Hauptdarsteller des
+  Kandidaten, der bereits unter den Top-3-Hauptdarstellern eines vom User disliketen Films war
+  (presence-basiert wie beim Genre-Anti-Boost – wie oft ein Hauptdarsteller bereits vorkam, spielt
+  keine Rolle, nur ob er überhaupt vorkommt; kann bei mehreren überschneidenden Hauptdarstellern
+  entsprechend mehrfach abziehen). Alle zuvor abgestimmten Faktoren (Freundes-Likes, Genre-Präferenz,
+  Genre-Anti-Boost, Rating, Zeitverfall, Zufall) bleiben unverändert.
+- **Datenmodell:** `groups/{groupId}/swipes/{uid}_{movieId}` bekommt ein weiteres, optionales Feld
+  `cast_ids` (exakter Spiegel von `genre_ids` – nach dem Anlegen unveränderlich, ältere Dokumente
+  ohne dieses Feld werden robust als „keine Hauptdarsteller bekannt" gelesen). `user_preferences/{uid}`
+  bekommt ein neues Feld `disliked_cast_ids` (exakter Spiegel von `disliked_genres` – Anzahl Dislikes
+  pro Personen-ID, ohne Zeitverfall, ausschließlich serverseitig von
+  `functions/userPreferences.js` gepflegt). Keine neue Collection nötig, kein vollständiger
+  TMDB-Cast (Namen, Bilder, Rollen, ...) wird gespeichert – nur numerische Personen-IDs.
+- **Security:** `cast_ids` auf `swipes` ist wie `genre_ids` typgeprüft und nach dem Anlegen
+  unveränderlich, schreibbar nur über den eigenen Swipe. Ein Client könnte theoretisch ein
+  frei erfundenes `cast_ids` mitschicken – das kann aber ausschließlich die eigene, persönliche
+  Warteschlangen-Sortierung dieses einen Users verfälschen (dieselbe, bereits bei `genre_ids`
+  akzeptierte Eigenschaft), niemals Daten anderer User, die Match-Erkennung
+  (`functions/matchEngine.js` liest weder `genre_ids` noch `cast_ids`) oder `user_preferences`
+  selbst beeinflussen – dieses Dokument bleibt vollständig serverseitig beschrieben
+  (`allow write: if false`, unverändert).
+- **UI:** keine – dieser Schritt ist rein serverseitig/algorithmisch, die Swipe-Oberfläche
+  (`SwipeCard`, Warteschlange, Aktionen) bleibt für den Nutzer unverändert sichtbar.
 
 ### Super Swipe (§6/§15)
 

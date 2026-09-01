@@ -605,4 +605,140 @@ void main() {
       expect(queue.first.tmdbId, 7);
     });
   });
+
+  group('SwipeQueueController - Cast-Anti-Boost (§7: "gleicher Hauptdarsteller")', () {
+    Future<void> setDislikedCastIds(FakeFirebaseFirestore firestore, String uid, Map<int, int> dislikedCastIds) {
+      return firestore.collection('user_preferences').doc(uid).set({
+        'genre_affinity': <String, dynamic>{},
+        'disliked_genres': <String, dynamic>{},
+        'top_genres': <int>[],
+        'disliked_cast_ids': dislikedCastIds.map((k, v) => MapEntry(k.toString(), v)),
+        'last_updated': Timestamp.now(),
+      });
+    }
+
+    /// TmdbService, dessen `/discover/movie`-Antworten von [pages] abhängen
+    /// und dessen `/movie/{id}/credits`-Antworten von [castByMovieId] - mit
+    /// optionalem [failingCredits]-Set, für das der Credits-Abruf mit einem
+    /// Server-Fehler fehlschlägt (Graceful-Degradation-Test).
+    TmdbService tmdbServiceWithCredits({
+      required Map<int, List<int>> pages,
+      required int totalPages,
+      required Map<int, List<int>> castByMovieId,
+      Set<int> failingCredits = const {},
+    }) {
+      final client = MockClient((request) async {
+        if (request.url.path.contains('/genre/movie/list')) {
+          return http.Response(jsonEncode({'genres': <dynamic>[]}), 200);
+        }
+        if (request.url.path.contains('/discover/movie')) {
+          final page = int.parse(request.url.queryParameters['page'] ?? '1');
+          final ids = pages[page] ?? const <int>[];
+          return http.Response(
+            jsonEncode({
+              'page': page,
+              'total_pages': totalPages,
+              'total_results': totalPages * 20,
+              'results': ids.map(_movieJson).toList(),
+            }),
+            200,
+          );
+        }
+        final creditsMatch = RegExp(r'/movie/(\d+)/credits').firstMatch(request.url.path);
+        if (creditsMatch != null) {
+          final movieId = int.parse(creditsMatch.group(1)!);
+          if (failingCredits.contains(movieId)) {
+            return http.Response('{}', 500);
+          }
+          final castIds = castByMovieId[movieId] ?? const <int>[];
+          return http.Response(
+            jsonEncode({
+              'cast': [
+                for (var i = 0; i < castIds.length; i++) {'id': castIds[i], 'order': i, 'name': 'Star $i'},
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      });
+      return TmdbService(client, accessToken: 'test-token');
+    }
+
+    test('ein Kandidat mit gleichem Hauptdarsteller wie ein gedislikter Film wird niedriger einsortiert',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      await setDislikedCastIds(firestore, 'alice', {500: 1});
+
+      final tmdbService = tmdbServiceWithCredits(
+        pages: {
+          1: [1, 2],
+        },
+        totalPages: 1,
+        castByMovieId: {
+          1: [500], // teilt sich den Hauptdarsteller mit dem Dislike -> Anti-Boost.
+          2: [600], // kein überlappender Hauptdarsteller.
+        },
+      );
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.map((m) => m.tmdbId).toSet(), {1, 2});
+      expect(queue.last.tmdbId, 1);
+    });
+
+    test('ein fehlschlagender Credits-Abruf für einen Kandidaten blockiert die Warteschlange nicht (Graceful Degradation)',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      await setDislikedCastIds(firestore, 'alice', {500: 1});
+
+      final tmdbService = tmdbServiceWithCredits(
+        pages: {
+          1: [1, 2],
+        },
+        totalPages: 1,
+        castByMovieId: {
+          1: [500],
+          2: [600],
+        },
+        failingCredits: {1},
+      );
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      // Film 1 bleibt trotz fehlgeschlagenem Credits-Abruf in der
+      // Warteschlange - nur ohne Cast-Anti-Boost-Signal für diesen Film.
+      expect(queue.map((m) => m.tmdbId).toSet(), {1, 2});
+    });
+
+    test('ohne überschneidende Hauptdarsteller bleibt die Kandidatenmenge unverändert (kein Anti-Boost)',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      await setDislikedCastIds(firestore, 'alice', {999: 1});
+
+      final tmdbService = tmdbServiceWithCredits(
+        pages: {
+          1: [1, 2],
+        },
+        totalPages: 1,
+        castByMovieId: {
+          1: [500],
+          2: [600],
+        },
+      );
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.map((m) => m.tmdbId).toSet(), {1, 2});
+    });
+  });
 }

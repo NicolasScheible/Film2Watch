@@ -461,6 +461,93 @@ describe('groups/{groupId}/swipes/{swipeId}', () => {
     );
   });
 
+  // §7 Cast-Anti-Boost ("gleicher Hauptdarsteller"): cast_ids (TMDB-Personen-
+  // IDs der Top-3-Hauptdarsteller zum Zeitpunkt des Swipes) sind optional,
+  // aber wenn vorhanden typgeprüft und nach dem Anlegen unveränderlich -
+  // exakter Spiegel von genre_ids oben.
+  it('erlaubt einen Swipe mit cast_ids', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/bob_920').set({
+        uid: 'bob',
+        movie_id: 920,
+        decision: 'dislike',
+        cast_ids: [1100, 1200],
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('erlaubt einen Swipe weiterhin auch ohne cast_ids (Rückwärtskompatibilität)', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/bob_921').set({
+        uid: 'bob',
+        movie_id: 921,
+        decision: 'dislike',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('lehnt einen Swipe ab, dessen cast_ids kein Array ist', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/bob_922').set({
+        uid: 'bob',
+        movie_id: 922,
+        decision: 'dislike',
+        cast_ids: 'someone',
+        created_at: now(),
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('lehnt es ab, dass cast_ids beim Update nachträglich verändert wird', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/bob_923').set({
+        uid: 'bob',
+        movie_id: 923,
+        decision: 'dislike',
+        cast_ids: [1100],
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/bob_923').update({
+        decision: 'dislike',
+        cast_ids: [1200],
+        updated_at: now(),
+      }),
+    );
+  });
+
+  it('erlaubt ein Update, das cast_ids unverändert lässt', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc('groups/swipesgroup1/swipes/bob_924').set({
+        uid: 'bob',
+        movie_id: 924,
+        decision: 'dislike',
+        cast_ids: [1100],
+        created_at: now(),
+        updated_at: now(),
+      });
+    });
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(
+      db.doc('groups/swipesgroup1/swipes/bob_924').update({
+        decision: 'skip',
+        cast_ids: [1100],
+        updated_at: now(),
+      }),
+    );
+  });
+
   // Super Swipe (§6/§15, Premium-Feature) - serverseitig über isPremium()
   // erzwungen, niemals nur clientseitig geprüft. alice ist laut Setup
   // Premium, bob nicht (siehe premium_status/{userId} weiter unten für die

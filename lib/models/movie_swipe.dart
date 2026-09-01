@@ -38,8 +38,10 @@ enum SwipeDecision {
 /// keine vollständigen Filmdaten (nur numerische IDs), ausschließlich für
 /// den Boost-Algorithmus (§7/§18 der Master-Spezifikation: Genre-Präferenz
 /// und Anti-Boost werten die eigene Like/Dislike-Historie aus, ohne dafür
-/// bei jeder Berechnung erneut TMDB abzufragen). Bei bereits bestehenden
-/// (älteren) Dokumenten ohne dieses Feld ist die Liste leer - robust
+/// bei jeder Berechnung erneut TMDB abzufragen). [castIds] sind analog die
+/// Top-3-Hauptdarsteller-IDs (siehe `selectMainCastIds`), Grundlage für den
+/// Cast-Anti-Boost ("gleicher Hauptdarsteller"). Bei bereits bestehenden
+/// (älteren) Dokumenten ohne diese Felder sind die Listen leer - robust
 /// gegenüber Legacy-Daten.
 class MovieSwipe {
   const MovieSwipe({
@@ -49,6 +51,7 @@ class MovieSwipe {
     required this.createdAt,
     required this.updatedAt,
     this.genreIds = const [],
+    this.castIds = const [],
   });
 
   final String uid;
@@ -57,12 +60,14 @@ class MovieSwipe {
   final DateTime createdAt;
   final DateTime updatedAt;
   final List<int> genreIds;
+  final List<int> castIds;
 
   factory MovieSwipe.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
     final createdAtValue = data['created_at'];
     final updatedAtValue = data['updated_at'];
     final genreIdsValue = data['genre_ids'] as List?;
+    final castIdsValue = data['cast_ids'] as List?;
     return MovieSwipe(
       uid: data['uid'] as String? ?? '',
       movieId: (data['movie_id'] as num?)?.toInt() ?? 0,
@@ -70,6 +75,7 @@ class MovieSwipe {
       createdAt: createdAtValue is Timestamp ? createdAtValue.toDate() : DateTime.now(),
       updatedAt: updatedAtValue is Timestamp ? updatedAtValue.toDate() : DateTime.now(),
       genreIds: genreIdsValue?.whereType<num>().map((n) => n.toInt()).toList() ?? const [],
+      castIds: castIdsValue?.whereType<num>().map((n) => n.toInt()).toList() ?? const [],
     );
   }
 
@@ -81,6 +87,7 @@ class MovieSwipe {
       'created_at': Timestamp.fromDate(createdAt),
       'updated_at': Timestamp.fromDate(updatedAt),
       'genre_ids': genreIds,
+      'cast_ids': castIds,
     };
   }
 }

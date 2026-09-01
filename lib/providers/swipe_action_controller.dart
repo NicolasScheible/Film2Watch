@@ -16,34 +16,35 @@ class SwipeActionController extends AsyncNotifier<void> {
   @override
   Future<void> build() async {}
 
-  Future<void> like(int movieId, {List<int> genreIds = const []}) =>
-      _swipe(movieId, decision: SwipeDecision.like, genreIds: genreIds);
+  Future<void> like(int movieId, {List<int> genreIds = const [], List<int> castIds = const []}) =>
+      _swipe(movieId, decision: SwipeDecision.like, genreIds: genreIds, castIds: castIds);
 
-  Future<void> dislike(int movieId, {List<int> genreIds = const []}) =>
-      _swipe(movieId, decision: SwipeDecision.dislike, genreIds: genreIds);
+  Future<void> dislike(int movieId, {List<int> genreIds = const [], List<int> castIds = const []}) =>
+      _swipe(movieId, decision: SwipeDecision.dislike, genreIds: genreIds, castIds: castIds);
 
   /// Blendet den Film nur für den aktuellen User aus der Warteschlange
   /// dieser Gruppe aus - andere Mitglieder sehen und bewerten ihn
   /// unverändert weiter, und es entsteht dadurch nie ein Match.
-  Future<void> skip(int movieId, {List<int> genreIds = const []}) =>
-      _swipe(movieId, decision: SwipeDecision.skip, genreIds: genreIds);
+  Future<void> skip(int movieId, {List<int> genreIds = const [], List<int> castIds = const []}) =>
+      _swipe(movieId, decision: SwipeDecision.skip, genreIds: genreIds, castIds: castIds);
 
   /// Setzt den Film persönlich auf "Vielleicht später" (Watchlist) - wie
   /// [skip] rein persönlich, kein Einfluss auf andere Mitglieder oder die
   /// Match-Erkennung.
-  Future<void> watchlist(int movieId, {List<int> genreIds = const []}) =>
-      _swipe(movieId, decision: SwipeDecision.watchlist, genreIds: genreIds);
+  Future<void> watchlist(int movieId, {List<int> genreIds = const [], List<int> castIds = const []}) =>
+      _swipe(movieId, decision: SwipeDecision.watchlist, genreIds: genreIds, castIds: castIds);
 
   /// "Super Swipe" (§6/§15, Premium-Feature) - wirft eine
   /// [GroupActionException] über den `error`-Zustand, wenn der User kein
   /// Premium hat (siehe `SwipeService.superSwipeMovie`).
-  Future<void> superSwipe(int movieId, {List<int> genreIds = const []}) =>
-      _swipe(movieId, decision: SwipeDecision.superSwipe, genreIds: genreIds);
+  Future<void> superSwipe(int movieId, {List<int> genreIds = const [], List<int> castIds = const []}) =>
+      _swipe(movieId, decision: SwipeDecision.superSwipe, genreIds: genreIds, castIds: castIds);
 
   Future<void> _swipe(
     int movieId, {
     required SwipeDecision decision,
     List<int> genreIds = const [],
+    List<int> castIds = const [],
   }) async {
     final uid = ref.read(authStateChangesProvider).value?.uid;
     if (uid == null || state.isLoading) return;
@@ -58,6 +59,7 @@ class SwipeActionController extends AsyncNotifier<void> {
             uid: uid,
             movieId: movieId,
             genreIds: genreIds,
+            castIds: castIds,
           );
         case SwipeDecision.dislike:
           await service.dislikeMovie(
@@ -65,6 +67,7 @@ class SwipeActionController extends AsyncNotifier<void> {
             uid: uid,
             movieId: movieId,
             genreIds: genreIds,
+            castIds: castIds,
           );
         case SwipeDecision.skip:
           await service.skipMovie(
@@ -72,6 +75,7 @@ class SwipeActionController extends AsyncNotifier<void> {
             uid: uid,
             movieId: movieId,
             genreIds: genreIds,
+            castIds: castIds,
           );
         case SwipeDecision.watchlist:
           await service.watchlistMovie(
@@ -79,6 +83,7 @@ class SwipeActionController extends AsyncNotifier<void> {
             uid: uid,
             movieId: movieId,
             genreIds: genreIds,
+            castIds: castIds,
           );
         case SwipeDecision.superSwipe:
           await service.superSwipeMovie(
@@ -86,6 +91,7 @@ class SwipeActionController extends AsyncNotifier<void> {
             uid: uid,
             movieId: movieId,
             genreIds: genreIds,
+            castIds: castIds,
           );
       }
       await ref

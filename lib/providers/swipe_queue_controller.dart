@@ -111,20 +111,44 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
           freshMovies.add(movie);
         }
       }
-      queue = [...queue, ...freshMovies];
+      queue = [...queue, ...await _withCastIds(freshMovies)];
     }
 
     // §7: voller personalisierter Boost-Score (Freundes-Likes, Genre-
-    // Präferenz, Anti-Boost, Bewertung, Zufall) - sortiert ausschließlich
-    // innerhalb der bereits gefilterten, deduplizierten, noch nicht
-    // bewerteten Kandidaten. Fügt nie einen Film hinzu oder entfernt einen -
-    // reine Umordnung.
+    // Präferenz, Anti-Boost (Genre + Hauptdarsteller), Bewertung, Zufall) -
+    // sortiert ausschließlich innerhalb der bereits gefilterten,
+    // deduplizierten, noch nicht bewerteten Kandidaten. Fügt nie einen Film
+    // hinzu oder entfernt einen - reine Umordnung.
     return sortByBoostScore(
       queue,
       friendLikeCounts: _friendLikeCounts,
       topGenres: _genrePreferences.topGenres,
       dislikedGenres: _genrePreferences.dislikedGenres,
+      dislikedCastIds: _genrePreferences.dislikedCastIds,
     );
+  }
+
+  /// Reichert [movies] mit ihren Top-3-Hauptdarsteller-IDs an
+  /// (`MovieRepository.getMainCastIds`, gecached - jeder Film wird über die
+  /// gesamte App-Laufzeit höchstens einmal abgefragt), Grundlage für den
+  /// Cast-Anti-Boost (§7). Läuft parallel (`Future.wait`), aber begrenzt auf
+  /// die Filme genau dieser einen, bereits durch `_maxPagesPerFill`
+  /// gedeckelten TMDB-Seite - keine unkontrollierte Anzahl gleichzeitiger
+  /// Requests. Schlägt der Credits-Abruf für einen einzelnen Film fehl (TMDB-
+  /// Fehler, Rate-Limit, ...), bleibt dieser Film trotzdem in der
+  /// Warteschlange - nur ohne Cast-Anti-Boost-Signal für diesen einen Film,
+  /// die restliche Swipe-Funktion bleibt uneingeschränkt nutzbar.
+  Future<List<Movie>> _withCastIds(List<Movie> movies) async {
+    final movieRepository = ref.read(movieRepositoryProvider);
+    final enriched = await Future.wait(movies.map((movie) async {
+      try {
+        final castIds = await movieRepository.getMainCastIds(movie.tmdbId);
+        return movie.withCastIds(castIds);
+      } catch (_) {
+        return movie;
+      }
+    }));
+    return enriched;
   }
 
   String _requireUid() {

@@ -5,7 +5,13 @@ import 'package:film2watch/models/movie_swipe.dart';
 import 'package:film2watch/utils/boost.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Movie _movie(int id, {List<int> genreIds = const [], double voteAverage = 0}) => Movie(
+Movie _movie(
+  int id, {
+  List<int> genreIds = const [],
+  List<int> castIds = const [],
+  double voteAverage = 0,
+}) =>
+    Movie(
       tmdbId: id,
       title: 'Film $id',
       originalTitle: 'Film $id',
@@ -19,6 +25,7 @@ Movie _movie(int id, {List<int> genreIds = const [], double voteAverage = 0}) =>
       voteCount: 0,
       runtime: null,
       originalLanguage: 'de',
+      castIds: castIds,
     );
 
 MovieSwipe _like({required String uid, required int movieId}) {
@@ -153,6 +160,7 @@ void main() {
         friendLikeCounts: {1: 1},
         topGenres: {27},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: 10,
       );
 
@@ -166,6 +174,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: const {},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: 5,
       );
 
@@ -179,6 +188,7 @@ void main() {
         friendLikeCounts: {1: 1},
         topGenres: const {},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: 0,
       );
       final threeFriends = computeBoostScore(
@@ -186,6 +196,7 @@ void main() {
         friendLikeCounts: {1: 3},
         topGenres: const {},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: 0,
       );
 
@@ -199,6 +210,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: {27},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: 0,
       );
       final twoMatches = computeBoostScore(
@@ -206,6 +218,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: {27, 28},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: 0,
       );
 
@@ -219,6 +232,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: {27},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: 0,
       );
       expect(score, closeTo(0, 0.0001));
@@ -230,6 +244,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: const {},
         dislikedGenres: {27: 5},
+        dislikedCastIds: const {},
         random: 0,
       );
       final twoOverlaps = computeBoostScore(
@@ -237,6 +252,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: const {},
         dislikedGenres: {27: 1, 28: 1},
+        dislikedCastIds: const {},
         random: 0,
       );
 
@@ -250,6 +266,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: const {},
         dislikedGenres: {27: 500},
+        dislikedCastIds: const {},
         random: 0,
       );
       expect(score, closeTo(-10, 0.0001));
@@ -261,6 +278,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: const {},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: 0,
       );
       expect(score, closeTo(36.0, 0.0001));
@@ -272,10 +290,87 @@ void main() {
         friendLikeCounts: {1: 2},
         topGenres: {27},
         dislikedGenres: {28: 1},
+        dislikedCastIds: const {},
         random: 3,
       );
       // 2*40 (Freunde) + 30 (Genre) + 0 (kein Anti-Boost, Genre 28 nicht im Film) + 25 (Rating) + 3 (Zufall)
       expect(score, closeTo(80 + 30 + 25 + 3, 0.0001));
+    });
+
+    // Cast-Anti-Boost (§7: "gleiches Genre, gleicher Hauptdarsteller") - exakt
+    // derselbe Mechanismus wie der bereits getestete Genre-Anti-Boost, nur
+    // auf castIds/dislikedCastIds statt genreIds/dislikedGenres angewendet.
+    test('Dislike + gleicher Hauptdarsteller -> -10', () {
+      final score = computeBoostScore(
+        movie: _movie(1, castIds: const [900]),
+        friendLikeCounts: const {},
+        topGenres: const {},
+        dislikedGenres: const {},
+        dislikedCastIds: {900: 1},
+        random: 0,
+      );
+      expect(score, closeTo(-10, 0.0001));
+    });
+
+    test('Dislike + kein gleicher Hauptdarsteller -> kein Schauspieler-Anti-Boost', () {
+      final score = computeBoostScore(
+        movie: _movie(1, castIds: const [900]),
+        friendLikeCounts: const {},
+        topGenres: const {},
+        dislikedGenres: const {},
+        dislikedCastIds: {111: 1},
+        random: 0,
+      );
+      expect(score, closeTo(0, 0.0001));
+    });
+
+    test('gleicher Hauptdarsteller + anderes Genre -> nur Schauspieler-Anti-Boost wirkt', () {
+      final score = computeBoostScore(
+        movie: _movie(1, genreIds: const [12], castIds: const [900]),
+        friendLikeCounts: const {},
+        topGenres: const {},
+        dislikedGenres: {27: 1},
+        dislikedCastIds: {900: 1},
+        random: 0,
+      );
+      expect(score, closeTo(-10, 0.0001));
+    });
+
+    test('gleiches Genre + gleicher Hauptdarsteller -> beide Anti-Boost-Faktoren wirken (-20)', () {
+      final score = computeBoostScore(
+        movie: _movie(1, genreIds: const [27], castIds: const [900]),
+        friendLikeCounts: const {},
+        topGenres: const {},
+        dislikedGenres: {27: 1},
+        dislikedCastIds: {900: 1},
+        random: 0,
+      );
+      expect(score, closeTo(-20, 0.0001));
+    });
+
+    test('mehrere überschneidende Hauptdarsteller ziehen entsprechend mehrfach -10 ab', () {
+      final score = computeBoostScore(
+        movie: _movie(1, castIds: const [900, 901, 902]),
+        friendLikeCounts: const {},
+        topGenres: const {},
+        dislikedGenres: const {},
+        dislikedCastIds: {900: 1, 901: 1},
+        random: 0,
+      );
+      // Nur 900 und 901 überschneiden sich, 902 nicht -> 2 * -10.
+      expect(score, closeTo(-20, 0.0001));
+    });
+
+    test('die Dislike-Anzahl eines Hauptdarstellers beeinflusst nicht die Höhe - nur ob er überhaupt vorkommt', () {
+      final score = computeBoostScore(
+        movie: _movie(1, castIds: const [900]),
+        friendLikeCounts: const {},
+        topGenres: const {},
+        dislikedGenres: const {},
+        dislikedCastIds: {900: 500},
+        random: 0,
+      );
+      expect(score, closeTo(-10, 0.0001));
     });
   });
 
@@ -291,6 +386,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: {27},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: Random(1),
       );
 
@@ -304,6 +400,7 @@ void main() {
         friendLikeCounts: {1: 5},
         topGenres: const {},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: Random(9),
       );
 
@@ -313,7 +410,13 @@ void main() {
 
     test('leere Filmliste bleibt leer', () {
       expect(
-        sortByBoostScore(const [], friendLikeCounts: const {}, topGenres: const {}, dislikedGenres: const {}),
+        sortByBoostScore(
+          const [],
+          friendLikeCounts: const {},
+          topGenres: const {},
+          dislikedGenres: const {},
+          dislikedCastIds: const {},
+        ),
         isEmpty,
       );
     });
@@ -325,6 +428,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: const {},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: Random(55),
       );
       final second = sortByBoostScore(
@@ -332,6 +436,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: const {},
         dislikedGenres: const {},
+        dislikedCastIds: const {},
         random: Random(55),
       );
 
@@ -352,6 +457,7 @@ void main() {
         friendLikeCounts: const {},
         topGenres: const {},
         dislikedGenres: {1: 1, 2: 1, 3: 1},
+        dislikedCastIds: const {},
         random: Random(2),
       );
 

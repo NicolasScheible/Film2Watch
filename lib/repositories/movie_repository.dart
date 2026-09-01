@@ -1,4 +1,5 @@
 import '../models/movie.dart';
+import '../models/movie_cast.dart';
 import '../models/movie_filter.dart';
 import '../models/movie_page.dart';
 import '../models/movie_trailer.dart';
@@ -22,6 +23,8 @@ class MovieRepository {
   static const _maxDetailsCacheSize = 100;
   final Map<int, MovieTrailer?> _trailerCache = {};
   static const _maxTrailerCacheSize = 100;
+  final Map<int, List<int>> _castIdsCache = {};
+  static const _maxCastIdsCacheSize = 100;
 
   Future<MoviePage> discoverMovies({int page = 1, MovieFilter filter = MovieFilter.empty}) async {
     final genreNames = await _genreNames();
@@ -123,6 +126,27 @@ class MovieRepository {
     }
     _trailerCache[tmdbId] = trailer;
     return trailer;
+  }
+
+  /// Die Top-3-Hauptdarsteller-IDs eines Films für den Cast-Anti-Boost (§7,
+  /// siehe [selectMainCastIds]) - gecached wie [getTrailer]/[getMovieDetails]
+  /// (kein wiederholter TMDB-Request für bereits bekannte Filme). Wirft
+  /// echte TMDB-Fehler durch statt sie zu verschlucken - die aufrufende
+  /// Schicht (`SwipeQueueController`) entscheidet, wie mit einem
+  /// fehlgeschlagenen Einzelfilm innerhalb einer größeren Kandidatenliste
+  /// umgegangen wird (nicht die ganze Warteschlange blockieren).
+  Future<List<int>> getMainCastIds(int tmdbId) async {
+    final cached = _castIdsCache[tmdbId];
+    if (cached != null) return cached;
+
+    final json = await _tmdbService.movieCredits(tmdbId);
+    final castIds = selectMainCastIds(json);
+
+    if (_castIdsCache.length >= _maxCastIdsCacheSize) {
+      _castIdsCache.remove(_castIdsCache.keys.first);
+    }
+    _castIdsCache[tmdbId] = castIds;
+    return castIds;
   }
 
   Future<Map<int, String>> _genreNames() async {

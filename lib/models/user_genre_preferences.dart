@@ -15,6 +15,7 @@ class UserGenrePreferences {
     required this.genreAffinity,
     required this.dislikedGenres,
     required this.topGenres,
+    required this.dislikedCastIds,
   });
 
   /// Leerer Ausgangszustand für User ohne (oder mit noch nicht ausgewerteter)
@@ -23,6 +24,7 @@ class UserGenrePreferences {
     genreAffinity: {},
     dislikedGenres: {},
     topGenres: {},
+    dislikedCastIds: {},
   );
 
   /// Zeitlich verfallsgewichtete Summe der Likes pro Genre-ID (§7:
@@ -32,12 +34,18 @@ class UserGenrePreferences {
   final Map<int, double> genreAffinity;
 
   /// Anzahl Dislikes pro Genre-ID (ohne Zeitverfall) - Grundlage für den
-  /// Anti-Boost (§7: "Ein Dislike senkt den Score ähnlicher Filme").
+  /// Genre-Anti-Boost (§7: "Ein Dislike senkt den Score ähnlicher Filme").
   final Map<int, int> dislikedGenres;
 
   /// Die (bis zu drei) Genres mit der höchsten [genreAffinity] - "oft
   /// geliked" im Sinne von §7's Grund-Boost (+30).
   final Set<int> topGenres;
+
+  /// Anzahl Dislikes pro TMDB-Personen-ID unter den Top-3-Hauptdarstellern
+  /// des jeweils gedislikten Films (ohne Zeitverfall, analog zu
+  /// [dislikedGenres]) - Grundlage für den Cast-Anti-Boost (§7: "gleicher
+  /// Hauptdarsteller").
+  final Map<int, int> dislikedCastIds;
 
   factory UserGenrePreferences.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
@@ -46,11 +54,13 @@ class UserGenrePreferences {
     final affinityRaw = data['genre_affinity'] as Map<String, dynamic>? ?? const {};
     final dislikedRaw = data['disliked_genres'] as Map<String, dynamic>? ?? const {};
     final topGenresRaw = data['top_genres'] as List? ?? const [];
+    final dislikedCastRaw = data['disliked_cast_ids'] as Map<String, dynamic>? ?? const {};
 
     return UserGenrePreferences(
       genreAffinity: _parseIntKeyedMap(affinityRaw).map((k, v) => MapEntry(k, v.toDouble())),
       dislikedGenres: _parseIntKeyedMap(dislikedRaw).map((k, v) => MapEntry(k, v.toInt())),
       topGenres: topGenresRaw.whereType<num>().map((n) => n.toInt()).toSet(),
+      dislikedCastIds: _parseIntKeyedMap(dislikedCastRaw).map((k, v) => MapEntry(k, v.toInt())),
     );
   }
 

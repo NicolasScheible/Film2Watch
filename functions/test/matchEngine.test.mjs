@@ -392,4 +392,34 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
 
     await assertNoMatchAfterSettling('g24', 633);
   });
+
+  // §7 Cast-Anti-Boost: genre_ids/cast_ids sind reine Boost-Metadaten für
+  // user_preferences (siehe userPreferences.test.mjs) und dürfen die
+  // Match-Erkennung nicht beeinflussen - beide Mitglieder liken trotz
+  // überlappender cast_ids weiterhin normal zum Match.
+  it('25. genre_ids/cast_ids auf den Swipes beeinflussen die Match-Erkennung nicht', async () => {
+    await createGroup('g25', ['alice', 'bob']);
+    await db.doc('groups/g25/swipes/alice_634').set({
+      uid: 'alice',
+      movie_id: 634,
+      decision: 'like',
+      genre_ids: [28, 12],
+      cast_ids: [111, 222, 333],
+      created_at: now(),
+      updated_at: now(),
+    });
+    await db.doc('groups/g25/swipes/bob_634').set({
+      uid: 'bob',
+      movie_id: 634,
+      decision: 'like',
+      genre_ids: [28, 12],
+      cast_ids: [111, 222, 333],
+      created_at: now(),
+      updated_at: now(),
+    });
+
+    const snap = await waitForMatch('g25', 634);
+    assert.equal(snap.exists, true);
+    assert.deepEqual(snap.data().member_uids, ['alice', 'bob']);
+  });
 });

@@ -74,6 +74,51 @@ void main() {
 
       expect(MovieSwipe.fromFirestore(await ref.get()).genreIds, isEmpty);
     });
+
+    test('cast_ids ist Teil des Firestore-Mappings, Default ist eine leere Liste', () async {
+      final firestore = FakeFirebaseFirestore();
+      final createdAt = DateTime(2026, 1, 1, 12);
+      final withCast = MovieSwipe(
+        uid: 'alice',
+        movieId: 554,
+        decision: SwipeDecision.dislike,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+        castIds: const [900, 901],
+      );
+      final withoutCast = MovieSwipe(
+        uid: 'alice',
+        movieId: 555,
+        decision: SwipeDecision.dislike,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      );
+
+      final ref1 = firestore.collection('groups').doc('g1').collection('swipes').doc('alice_554');
+      await ref1.set(withCast.toFirestore());
+      final ref2 = firestore.collection('groups').doc('g1').collection('swipes').doc('alice_555');
+      await ref2.set(withoutCast.toFirestore());
+
+      expect(MovieSwipe.fromFirestore(await ref1.get()).castIds, [900, 901]);
+      expect(MovieSwipe.fromFirestore(await ref2.get()).castIds, isEmpty);
+    });
+
+    test('ein Legacy-Dokument ohne cast_ids-Feld wird robust als leere Liste gelesen', () async {
+      final firestore = FakeFirebaseFirestore();
+      final ref = firestore.collection('groups').doc('g1').collection('swipes').doc('alice_556');
+      await ref.set({
+        'uid': 'alice',
+        'movie_id': 556,
+        'decision': 'dislike',
+        'created_at': Timestamp.now(),
+        'updated_at': Timestamp.now(),
+        'genre_ids': <int>[27],
+        // bewusst kein 'cast_ids'-Feld - simuliert ein vor diesem Schritt
+        // angelegtes Dokument.
+      });
+
+      expect(MovieSwipe.fromFirestore(await ref.get()).castIds, isEmpty);
+    });
   });
 
   group('SwipeService', () {
@@ -208,6 +253,42 @@ void main() {
 
       final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 565);
       expect(swipe!.genreIds, isEmpty);
+    });
+
+    test('cast_ids wird beim Anlegen gespeichert (§7 Cast-Anti-Boost)', () async {
+      await swipeService.dislikeMovie(
+        groupId: groupId,
+        uid: 'alice',
+        movieId: 566,
+        castIds: const [900, 901],
+      );
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 566);
+      expect(swipe!.castIds, [900, 901]);
+    });
+
+    test('cast_ids bleibt beim erneuten Bewerten desselben Films unverändert', () async {
+      await swipeService.likeMovie(
+        groupId: groupId,
+        uid: 'alice',
+        movieId: 567,
+        castIds: const [900],
+      );
+      // Ein erneutes Bewerten übergibt bewusst KEINE cast_ids (Default
+      // const []) - die ursprünglich gespeicherten cast_ids dürfen trotzdem
+      // nicht verschwinden.
+      await swipeService.dislikeMovie(groupId: groupId, uid: 'alice', movieId: 567);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 567);
+      expect(swipe!.decision, SwipeDecision.dislike);
+      expect(swipe.castIds, [900]);
+    });
+
+    test('ohne cast_ids-Angabe ist die Liste leer (Rückwärtskompatibilität)', () async {
+      await swipeService.likeMovie(groupId: groupId, uid: 'alice', movieId: 568);
+
+      final swipe = await swipeRepository.getSwipe(groupId: groupId, uid: 'alice', movieId: 568);
+      expect(swipe!.castIds, isEmpty);
     });
 
     test('Watchlist speichert eine Entscheidung mit decision == watchlist', () async {

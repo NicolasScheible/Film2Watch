@@ -42,13 +42,14 @@ async function createGroup(groupId, memberUids) {
   }
 }
 
-async function setSwipe(groupId, uid, movieId, decision, { genreIds = [], createdAt } = {}) {
+async function setSwipe(groupId, uid, movieId, decision, { genreIds = [], castIds = [], createdAt } = {}) {
   const ref = db.doc(`groups/${groupId}/swipes/${uid}_${movieId}`);
   await ref.set({
     uid,
     movie_id: movieId,
     decision,
     genre_ids: genreIds,
+    cast_ids: castIds,
     created_at: createdAt || now(),
     updated_at: now(),
   });
@@ -178,5 +179,63 @@ describe('onSwipeWrittenForPreferences -> Genre-Präferenz/Anti-Boost (echter Fu
 
     assert.equal(snap.data().genre_affinity['12'] ?? 0, 0);
     assert.deepEqual(snap.data().top_genres, [13]);
+  });
+});
+
+// §7 Cast-Anti-Boost ("gleicher Hauptdarsteller"): exakter Spiegel der
+// disliked_genres-Aggregation oben, nur für die Top-3-Hauptdarsteller-IDs.
+describe('onSwipeWrittenForPreferences -> Cast-Anti-Boost (disliked_cast_ids)', () => {
+  it('1. ein Dislike erhöht disliked_cast_ids für jeden Hauptdarsteller', async () => {
+    await createGroup('c1', ['cast-user-1', 'c1-other']);
+    await setSwipe('c1', 'cast-user-1', 900, 'dislike', { castIds: [111, 222] });
+
+    const snap = await waitForPreferences('cast-user-1', (data) => (data.disliked_cast_ids || {})['111'] === 1);
+
+    assert.equal(snap.data().disliked_cast_ids['111'], 1);
+    assert.equal(snap.data().disliked_cast_ids['222'], 1);
+  });
+
+  it('2. ein Like trägt nicht zu disliked_cast_ids bei', async () => {
+    await createGroup('c2', ['cast-user-2', 'c2-other']);
+    await setSwipe('c2', 'cast-user-2', 910, 'like', { genreIds: [1], castIds: [333] });
+    // Ein anschließender Dislike in einem anderen Cast beweist, dass die
+    // Function tatsächlich gelaufen ist.
+    await setSwipe('c2', 'cast-user-2', 911, 'dislike', { castIds: [444] });
+
+    const snap = await waitForPreferences('cast-user-2', (data) => (data.disliked_cast_ids || {})['444'] === 1);
+
+    assert.equal(snap.data().disliked_cast_ids['333'] ?? 0, 0);
+    assert.equal(snap.data().disliked_cast_ids['444'], 1);
+  });
+
+  it('3. Skip- und Watchlist-Swipes tragen nicht zu disliked_cast_ids bei (nur "dislike" zählt)', async () => {
+    await createGroup('c3', ['cast-user-3', 'c3-other']);
+    await setSwipe('c3', 'cast-user-3', 920, 'skip', { castIds: [555] });
+    await setSwipe('c3', 'cast-user-3', 921, 'watchlist', { castIds: [555] });
+    await setSwipe('c3', 'cast-user-3', 922, 'dislike', { castIds: [666] });
+
+    const snap = await waitForPreferences('cast-user-3', (data) => (data.disliked_cast_ids || {})['666'] === 1);
+
+    assert.equal(snap.data().disliked_cast_ids['555'] ?? 0, 0);
+    assert.equal(snap.data().disliked_cast_ids['666'], 1);
+  });
+
+  it('4. mehrere Dislikes desselben Hauptdarstellers summieren sich', async () => {
+    await createGroup('c4', ['cast-user-4', 'c4-other']);
+    await setSwipe('c4', 'cast-user-4', 930, 'dislike', { castIds: [777] });
+    await setSwipe('c4', 'cast-user-4', 931, 'dislike', { castIds: [777] });
+
+    const snap = await waitForPreferences('cast-user-4', (data) => (data.disliked_cast_ids || {})['777'] === 2);
+
+    assert.equal(snap.data().disliked_cast_ids['777'], 2);
+  });
+
+  it('5. ein Dislike ohne cast_ids führt zu keinem Fehler und trägt nichts bei', async () => {
+    await createGroup('c5', ['cast-user-5', 'c5-other']);
+    await setSwipe('c5', 'cast-user-5', 940, 'dislike', { genreIds: [10] });
+
+    const snap = await waitForPreferences('cast-user-5', (data) => (data.disliked_genres || {})['10'] === 1);
+
+    assert.deepEqual(snap.data().disliked_cast_ids, {});
   });
 });

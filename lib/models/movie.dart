@@ -17,6 +17,7 @@ class Movie {
     required this.voteCount,
     required this.runtime,
     required this.originalLanguage,
+    this.castIds = const [],
   });
 
   final int tmdbId;
@@ -32,6 +33,36 @@ class Movie {
   final int voteCount;
   final int? runtime;
   final String originalLanguage;
+
+  /// Die Hauptdarsteller-IDs (§7 Cast-Anti-Boost, siehe
+  /// `selectMainCastIds`) - anders als [genreIds] NICHT Teil der
+  /// Discover-/Search-/Details-Antwort, die dieses [Movie] erzeugt hat
+  /// (TMDB liefert Cast nur über den separaten `/credits`-Endpunkt). Leer,
+  /// bis [withCastIds] es explizit setzt (siehe `SwipeQueueController`, das
+  /// Kandidaten vor der Boost-Sortierung damit anreichert).
+  final List<int> castIds;
+
+  /// Liefert eine Kopie mit gesetzten [castIds] - alle anderen Felder
+  /// unverändert. Kein allgemeines `copyWith`, da aktuell nur dieses eine
+  /// Feld nachträglich angereichert werden muss.
+  Movie withCastIds(List<int> castIds) {
+    return Movie(
+      tmdbId: tmdbId,
+      title: title,
+      originalTitle: originalTitle,
+      overview: overview,
+      posterPath: posterPath,
+      backdropPath: backdropPath,
+      releaseDate: releaseDate,
+      genreIds: genreIds,
+      genres: genres,
+      voteAverage: voteAverage,
+      voteCount: voteCount,
+      runtime: runtime,
+      originalLanguage: originalLanguage,
+      castIds: castIds,
+    );
+  }
 
   /// Baut ein [Movie] aus einer TMDB-JSON-Antwort (Discover/Search/Details).
   ///

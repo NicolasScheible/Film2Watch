@@ -65,6 +65,11 @@ List<Movie> sortByFriendLikeBoost(
 const _friendBoost = 40.0;
 const _genreBonus = 30.0;
 const _antiBoostPerGenre = -10.0;
+// Derselbe -10-Anti-Boost aus §7 ("gleiches Genre, gleicher Hauptdarsteller"),
+// hier als eigene Konstante für den Cast-Anteil - numerisch identisch zu
+// _antiBoostPerGenre, aber begrifflich der zweite, unabhängige Faktor
+// desselben Satzes.
+const _antiBoostPerCastMember = -10.0;
 const _ratingMultiplier = 5.0;
 const _randomMax = 20.0;
 
@@ -83,10 +88,19 @@ const _randomMax = 20.0;
 ///   [topGenres] des Users trifft (die Genres mit der höchsten
 ///   zeitverfallsgewichteten Like-Historie, siehe `user_preferences` /
 ///   `functions/userPreferences.js`).
-/// - **Anti-Boost** (-10 je Genre-Überschneidung): für jedes Genre des Films,
-///   das der User bereits mindestens einmal disliked hat
+/// - **Genre-Anti-Boost** (-10 je Genre-Überschneidung): für jedes Genre des
+///   Films, das der User bereits mindestens einmal disliked hat
 ///   ([dislikedGenres]) - kann bei mehreren überschneidenden Genres
 ///   entsprechend mehrfach abziehen.
+/// - **Cast-Anti-Boost** (-10 je Hauptdarsteller-Überschneidung): für jeden
+///   der Top-3-Hauptdarsteller des Films ([Movie.castIds]), der bereits unter
+///   den Top-3-Hauptdarstellern eines vom User disliketen Films war
+///   ([dislikedCastIds]) - exakt derselbe Mechanismus wie beim
+///   Genre-Anti-Boost, nur auf Cast-IDs statt Genre-IDs angewendet (§7:
+///   "gleiches Genre, gleicher Hauptdarsteller" - ein Satz, zwei
+///   gleichwertige Kriterien). Presence-basiert wie beim Genre-Anti-Boost:
+///   wie oft ein Cast-Mitglied bereits in einem gedisliketen Film vorkam,
+///   spielt keine Rolle, nur ob es überhaupt vorkommt.
 /// - **Bewertung** (Rating × 5): [Movie.voteAverage] (TMDB `vote_average` -
 ///   dieselbe Quelle, die app-weit bereits als "Bewertung" angezeigt wird,
 ///   siehe z. B. `swipe_card.dart`).
@@ -95,12 +109,15 @@ const _randomMax = 20.0;
 ///
 /// Zeitbasierter Verfall ist bereits in [topGenres]/[dislikedGenres]
 /// eingerechnet (serverseitig in der Cloud Function) und fließt hier nicht
-/// nochmal ein.
+/// nochmal ein. [dislikedCastIds] hat aus demselben, mit dem
+/// Produktverantwortlichen abgestimmten Grund wie [dislikedGenres] ebenfalls
+/// keinen Zeitverfall.
 double computeBoostScore({
   required Movie movie,
   required Map<int, int> friendLikeCounts,
   required Set<int> topGenres,
   required Map<int, int> dislikedGenres,
+  required Map<int, int> dislikedCastIds,
   required double random,
 }) {
   var score = 0.0;
@@ -114,6 +131,10 @@ double computeBoostScore({
   final overlappingDislikedGenres =
       movie.genreIds.where(dislikedGenres.containsKey).length;
   score += overlappingDislikedGenres * _antiBoostPerGenre;
+
+  final overlappingDislikedCast =
+      movie.castIds.where(dislikedCastIds.containsKey).length;
+  score += overlappingDislikedCast * _antiBoostPerCastMember;
 
   score += movie.voteAverage * _ratingMultiplier;
   score += random;
@@ -132,6 +153,7 @@ List<Movie> sortByBoostScore(
   required Map<int, int> friendLikeCounts,
   required Set<int> topGenres,
   required Map<int, int> dislikedGenres,
+  required Map<int, int> dislikedCastIds,
   Random? random,
 }) {
   final rng = random ?? Random();
@@ -144,6 +166,7 @@ List<Movie> sortByBoostScore(
           friendLikeCounts: friendLikeCounts,
           topGenres: topGenres,
           dislikedGenres: dislikedGenres,
+          dislikedCastIds: dislikedCastIds,
           random: rng.nextDouble() * _randomMax,
         ),
       ),

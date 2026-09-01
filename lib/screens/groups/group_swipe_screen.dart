@@ -48,13 +48,13 @@ class _GroupSwipeScreenState extends ConsumerState<GroupSwipeScreen> {
     final notifier = ref.read(swipeActionControllerProvider(widget.groupId).notifier);
     switch (direction) {
       case SwipeCardDirection.like:
-        notifier.like(movie.tmdbId, genreIds: movie.genreIds);
+        notifier.like(movie.tmdbId, genreIds: movie.genreIds, castIds: movie.castIds);
       case SwipeCardDirection.dislike:
-        notifier.dislike(movie.tmdbId, genreIds: movie.genreIds);
+        notifier.dislike(movie.tmdbId, genreIds: movie.genreIds, castIds: movie.castIds);
       case SwipeCardDirection.skip:
-        notifier.skip(movie.tmdbId, genreIds: movie.genreIds);
+        notifier.skip(movie.tmdbId, genreIds: movie.genreIds, castIds: movie.castIds);
       case SwipeCardDirection.watchlist:
-        notifier.watchlist(movie.tmdbId, genreIds: movie.genreIds);
+        notifier.watchlist(movie.tmdbId, genreIds: movie.genreIds, castIds: movie.castIds);
     }
   }
 
