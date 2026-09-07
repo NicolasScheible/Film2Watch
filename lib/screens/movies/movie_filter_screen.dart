@@ -5,6 +5,7 @@ import '../../components/auth/primary_button.dart';
 import '../../models/movie_filter.dart';
 import '../../models/watch_provider_option.dart';
 import '../../providers/movie_filter_provider.dart';
+import '../../providers/swipe_provider.dart';
 import '../../providers/tmdb_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/tmdb_error_translator.dart';
@@ -48,6 +49,11 @@ class _MovieFilterScreenState extends ConsumerState<MovieFilterScreen> {
   Widget build(BuildContext context) {
     final genresAsync = ref.watch(movieGenresProvider);
     final providersAsync = ref.watch(watchProviderListProvider);
+    // Solange der Premium-Status noch lädt oder der User nicht eingeloggt
+    // ist, gilt der sichere Standard "Free" (Einzelauswahl) - analog zum
+    // Super-Swipe-Gating in `GroupSwipeScreen` wird nichts behauptet, ehe
+    // ein Wert bestätigt ist.
+    final isPremium = ref.watch(isPremiumProvider).value ?? false;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -68,12 +74,9 @@ class _MovieFilterScreenState extends ConsumerState<MovieFilterScreen> {
             providersAsync.when(
               data: (providers) => _PlatformSelector(
                 providers: providers,
-                selectedId: _draft.watchProviderId,
-                onChanged: (id) => setState(
-                  () => _draft = id == null
-                      ? _draft.copyWith(clearWatchProviderId: true)
-                      : _draft.copyWith(watchProviderId: id),
-                ),
+                selectedIds: _draft.watchProviderIds,
+                isPremium: isPremium,
+                onChanged: (ids) => setState(() => _draft = _draft.copyWith(watchProviderIds: ids)),
               ),
               loading: () => const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
@@ -170,16 +173,25 @@ class _FilterErrorHint extends StatelessWidget {
   }
 }
 
+/// Plattform-Auswahl (§10): Free-User wählen wie bisher genau eine
+/// Plattform (oder "Alle"); Premium-User dürfen laut §15 mehrere
+/// gleichzeitig wählen (ODER-verknüpft, wie beim Genre-Filter). Da
+/// [MovieFilter] rein clientseitig/session-lokal ist (kein Firestore-Feld,
+/// nichts wird geteilt), ist diese UI-Beschränkung die einzige und
+/// ausreichende Durchsetzung - es gibt keine serverseitig zu schützende
+/// Ressource.
 class _PlatformSelector extends StatelessWidget {
   const _PlatformSelector({
     required this.providers,
-    required this.selectedId,
+    required this.selectedIds,
+    required this.isPremium,
     required this.onChanged,
   });
 
   final List<WatchProviderOption> providers;
-  final int? selectedId;
-  final ValueChanged<int?> onChanged;
+  final Set<int> selectedIds;
+  final bool isPremium;
+  final ValueChanged<Set<int>> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -189,21 +201,48 @@ class _PlatformSelector extends StatelessWidget {
         style: TextStyle(color: AppColors.textSecondary),
       );
     }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ChoiceChip(
-          label: const Text('Alle'),
-          selected: selectedId == null,
-          onSelected: (_) => onChanged(null),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('Alle'),
+              selected: selectedIds.isEmpty,
+              onSelected: (_) => onChanged(const {}),
+            ),
+            for (final provider in providers)
+              if (isPremium)
+                FilterChip(
+                  label: Text(provider.providerName),
+                  selected: selectedIds.contains(provider.providerId),
+                  onSelected: (selected) {
+                    final next = Set<int>.from(selectedIds);
+                    if (selected) {
+                      next.add(provider.providerId);
+                    } else {
+                      next.remove(provider.providerId);
+                    }
+                    onChanged(next);
+                  },
+                )
+              else
+                ChoiceChip(
+                  label: Text(provider.providerName),
+                  selected: selectedIds.contains(provider.providerId),
+                  onSelected: (_) => onChanged({provider.providerId}),
+                ),
+          ],
         ),
-        for (final provider in providers)
-          ChoiceChip(
-            label: Text(provider.providerName),
-            selected: selectedId == provider.providerId,
-            onSelected: (_) => onChanged(provider.providerId),
+        if (!isPremium) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Mehrere Plattformen gleichzeitig ist ein Premium-Feature.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
           ),
+        ],
       ],
     );
   }

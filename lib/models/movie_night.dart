@@ -37,7 +37,7 @@ class MovieNight {
 
   /// TMDB `provider_id` der vorgeschlagenen Streaming-Plattform (§12:
   /// "Plattform") - derselbe, bereits bestehende Plattform-Begriff wie im
-  /// Filter-System (§10, `MovieFilter.watchProviderId`/`WatchProviderOption`),
+  /// Filter-System (§10, `MovieFilter.watchProviderIds`/`WatchProviderOption`),
   /// keine neue, eigene Plattform-Modellierung.
   final int platformId;
 

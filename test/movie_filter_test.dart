@@ -22,7 +22,7 @@ void main() {
     });
 
     test('isActive wird true, sobald ein einzelnes Kriterium gesetzt ist', () {
-      expect(const MovieFilter(watchProviderId: 8).isActive, isTrue);
+      expect(const MovieFilter(watchProviderIds: {8}).isActive, isTrue);
       expect(const MovieFilter(genreIds: {28}).isActive, isTrue);
       expect(const MovieFilter(yearFrom: 2000).isActive, isTrue);
       expect(const MovieFilter(minRating: 6).isActive, isTrue);
@@ -39,17 +39,22 @@ void main() {
     });
 
     test('copyWith mit clear-Flag setzt das jeweilige Feld zurück', () {
-      final filter = const MovieFilter(watchProviderId: 8, minRating: 7);
-      final cleared = filter.copyWith(clearWatchProviderId: true, clearMinRating: true);
-      expect(cleared.watchProviderId, isNull);
+      final filter = const MovieFilter(watchProviderIds: {8}, minRating: 7);
+      final cleared = filter.copyWith(watchProviderIds: const {}, clearMinRating: true);
+      expect(cleared.watchProviderIds, isEmpty);
       expect(cleared.minRating, isNull);
     });
 
     test('zwei MovieFilter mit denselben Werten sind gleich (für Provider-Vergleich)', () {
-      const a = MovieFilter(watchProviderId: 8, genreIds: {28, 12});
-      const b = MovieFilter(watchProviderId: 8, genreIds: {12, 28});
+      const a = MovieFilter(watchProviderIds: {8, 9}, genreIds: {28, 12});
+      const b = MovieFilter(watchProviderIds: {9, 8}, genreIds: {12, 28});
       expect(a, b);
       expect(a.hashCode, b.hashCode);
+    });
+
+    test('watchProviderIds mit mehreren Plattformen (Premium-Mehrfachauswahl, §15) macht den Filter aktiv', () {
+      expect(const MovieFilter(watchProviderIds: {8, 9}).isActive, isTrue);
+      expect(const MovieFilter(watchProviderIds: {8, 9}).activeCount, 1);
     });
   });
 
@@ -76,11 +81,22 @@ void main() {
       expect(capturedUri.queryParameters.containsKey('with_runtime.gte'), isFalse);
     });
 
-    test('watchProviderId wird korrekt inkl. watch_region und flatrate-Typ übergeben', () async {
-      await serviceCapturing().discoverMovies(page: 1, watchProviderId: 8, region: 'DE');
+    test('watchProviderIds wird korrekt inkl. watch_region und flatrate-Typ übergeben', () async {
+      await serviceCapturing().discoverMovies(page: 1, watchProviderIds: {8}, region: 'DE');
       expect(capturedUri.queryParameters['with_watch_providers'], '8');
       expect(capturedUri.queryParameters['watch_region'], 'DE');
       expect(capturedUri.queryParameters['with_watch_monetization_types'], 'flatrate');
+    });
+
+    test('mehrere watchProviderIds (Premium-Mehrfachauswahl) werden mit Pipe (ODER) verknüpft', () async {
+      await serviceCapturing().discoverMovies(page: 1, watchProviderIds: {8, 9}, region: 'DE');
+      final value = capturedUri.queryParameters['with_watch_providers']!;
+      expect(value.split('|').toSet(), {'8', '9'});
+    });
+
+    test('ein leeres watchProviderIds-Set sendet keinen Plattform-Filter', () async {
+      await serviceCapturing().discoverMovies(page: 1, watchProviderIds: const {});
+      expect(capturedUri.queryParameters.containsKey('with_watch_providers'), isFalse);
     });
 
     test('mehrere genreIds werden mit Pipe (ODER) verknüpft', () async {
@@ -114,7 +130,7 @@ void main() {
     test('alle Filter gleichzeitig werden kombiniert übergeben', () async {
       await serviceCapturing().discoverMovies(
         page: 1,
-        watchProviderId: 8,
+        watchProviderIds: {8},
         genreIds: {28},
         yearFrom: 2000,
         yearTo: 2020,
@@ -153,7 +169,7 @@ void main() {
       });
       final repository = MovieRepository(TmdbService(client, accessToken: 'test-token'));
 
-      await repository.discoverMovies(filter: const MovieFilter(watchProviderId: 9));
+      await repository.discoverMovies(filter: const MovieFilter(watchProviderIds: {9}));
 
       expect(capturedUri.queryParameters['with_watch_providers'], '9');
     });

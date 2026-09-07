@@ -23,17 +23,19 @@ class TmdbService {
   static const _baseUrl = 'https://api.themoviedb.org/3';
   static const _timeout = Duration(seconds: 10);
 
-  /// [watchProviderId], [genreIds] (ODER-verknüpft, TMDB-Pipe-Syntax),
-  /// [yearFrom]/[yearTo] (über `primary_release_date.gte`/`.lte`),
-  /// [minRating] (`vote_average.gte`) und [runtimeFromMinutes]/
-  /// [runtimeToMinutes] (`with_runtime.gte`/`.lte`) sind optionale
-  /// TMDB-Discover-Filter (§10 der Master-Spezifikation) - werden nur
-  /// gesendet, wenn tatsächlich gesetzt.
+  /// [watchProviderIds] (ODER-verknüpft, TMDB-Pipe-Syntax; Mehrfachauswahl
+  /// ist laut §15 ein Premium-Feature), [genreIds] (ODER-verknüpft,
+  /// TMDB-Pipe-Syntax), [yearFrom]/[yearTo] (über
+  /// `primary_release_date.gte`/`.lte`), [minRating] (`vote_average.gte`)
+  /// und [runtimeFromMinutes]/[runtimeToMinutes]
+  /// (`with_runtime.gte`/`.lte`) sind optionale TMDB-Discover-Filter (§10
+  /// der Master-Spezifikation) - werden nur gesendet, wenn tatsächlich
+  /// gesetzt.
   Future<Map<String, dynamic>> discoverMovies({
     required int page,
     String? language,
     String? region,
-    int? watchProviderId,
+    Set<int>? watchProviderIds,
     Set<int>? genreIds,
     int? yearFrom,
     int? yearTo,
@@ -42,15 +44,16 @@ class TmdbService {
     int? runtimeToMinutes,
   }) {
     final effectiveRegion = region ?? TmdbConfig.defaultRegion;
+    final hasWatchProviders = watchProviderIds != null && watchProviderIds.isNotEmpty;
     return _get('/discover/movie', {
       'page': '$page',
       'language': language ?? TmdbConfig.defaultLanguage,
       'region': effectiveRegion,
       'sort_by': 'popularity.desc',
       'include_adult': 'false',
-      if (watchProviderId != null) 'with_watch_providers': '$watchProviderId',
-      if (watchProviderId != null) 'watch_region': effectiveRegion,
-      if (watchProviderId != null) 'with_watch_monetization_types': 'flatrate',
+      if (hasWatchProviders) 'with_watch_providers': watchProviderIds.join('|'),
+      if (hasWatchProviders) 'watch_region': effectiveRegion,
+      if (hasWatchProviders) 'with_watch_monetization_types': 'flatrate',
       if (genreIds != null && genreIds.isNotEmpty) 'with_genres': genreIds.join('|'),
       if (yearFrom != null) 'primary_release_date.gte': '$yearFrom-01-01',
       if (yearTo != null) 'primary_release_date.lte': '$yearTo-12-31',

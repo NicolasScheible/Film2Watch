@@ -284,7 +284,7 @@ void main() {
 
       container
           .read(movieFilterControllerProvider('g1').notifier)
-          .update(const MovieFilter(watchProviderId: 8, genreIds: {28}));
+          .update(const MovieFilter(watchProviderIds: {8}, genreIds: {28}));
 
       await container.read(swipeQueueControllerProvider('g1').future);
 
@@ -325,7 +325,7 @@ void main() {
 
       container
           .read(movieFilterControllerProvider('g1').notifier)
-          .update(const MovieFilter(watchProviderId: 8));
+          .update(const MovieFilter(watchProviderIds: {8}));
 
       final filtered = await container.read(swipeQueueControllerProvider('g1').future);
       expect(filtered.map((m) => m.tmdbId), containsAll([101, 102]));
@@ -399,7 +399,7 @@ void main() {
 
       container
           .read(movieFilterControllerProvider('g1').notifier)
-          .update(const MovieFilter(watchProviderId: 8));
+          .update(const MovieFilter(watchProviderIds: {8}));
 
       final queue = await container.read(swipeQueueControllerProvider('g1').future);
 

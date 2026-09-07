@@ -4,24 +4,37 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Filmabend-/Terminplanung (§12)**. Profil-, Freundes-, Profilbild-, Gruppen-,
-TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button, Watchlist-Eintrag entfernen,
-vollem Boost-Algorithmus inkl. Cast-Anti-Boost und Super-Swipe-UI), Match-, Chat-, Push-, Onboarding-
-und globaler Swipe-Tab-Schritt aus den vorherigen Schritten unverändert. §12 der Master-Spezifikation
-selbst widerspricht sich in der Priorisierung (§19s MVP-Liste enthält den Punkt nicht, §21 nennt nur
-die deutlich komplexere „Filmabend-Abstimmung" als „später") - **mit dem Produktverantwortlichen
-abgestimmt**: umgesetzt wird ausschließlich die einfache §12-Variante (ein einzelner Terminvorschlag:
-Datum/Uhrzeit/Plattform + Reminder-Push, optional ein bereits gematchter Film), **keine**
-Abstimmung/Mehrfachauswahl/RSVP - „Filmabend-Abstimmung" (§21) bleibt weiterhin explizit
-zurückgestellt. Siehe „Filmabend-/Terminplanung" unten für die vollständige Herleitung.
+Aktueller Schritt: **Premium-Mehrfachauswahl beim Plattform-Filter (§15)**. Der Plattform-Filter
+(§10) erlaubte bisher nur eine Einzelauswahl inkl. „Alle" - das war explizit als MVP-Einschränkung
+dokumentiert, weil Mehrfachauswahl laut §15 ein Premium-Vorteil („erweiterte Filter") ist. Free-User
+wählen weiterhin genau eine Plattform (unverändertes Verhalten); bestätigte Premium-User
+(`isPremiumProvider`, wie beim Super-Swipe-Gating) dürfen jetzt mehrere Plattformen gleichzeitig
+wählen (ODER-verknüpft über TMDB `with_watch_providers`, analog zum Genre-Filter). Da `MovieFilter`
+rein clientseitig/session-lokal ist (kein Firestore-Feld, nichts wird geteilt oder dauerhaft
+gespeichert), ist diese UI-Beschränkung die einzige und ausreichende Durchsetzung - es gibt keine
+serverseitig zu schützende Ressource, anders als bei Super Swipe (dort bleibt die Firestore-Regel
+`isPremium()` die eigentliche Absicherung). Filmabend-/Terminplanung (§12), Profil-, Freundes-,
+Profilbild-, Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button,
+Watchlist-Eintrag entfernen, vollem Boost-Algorithmus inkl. Cast-Anti-Boost und Super-Swipe-UI),
+Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den vorherigen Schritten
+unverändert. §12 der Master-Spezifikation selbst widerspricht sich in der Priorisierung (§19s
+MVP-Liste enthält den Punkt nicht, §21 nennt nur die deutlich komplexere „Filmabend-Abstimmung" als
+„später") - **mit dem Produktverantwortlichen abgestimmt**: umgesetzt wird ausschließlich die
+einfache §12-Variante (ein einzelner Terminvorschlag: Datum/Uhrzeit/Plattform + Reminder-Push,
+optional ein bereits gematchter Film), **keine** Abstimmung/Mehrfachauswahl/RSVP -
+„Filmabend-Abstimmung" (§21) bleibt weiterhin explizit zurückgestellt. Siehe
+„Filmabend-/Terminplanung" unten für die vollständige Herleitung.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
 Boost-Bonus für Super Swipe (Master-Spezifikation nennt keinen Wert), **echte Premium-Aktivierung**
 (RevenueCat/App-Store-/Play-Store-Abo - benötigt
 externe Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; nur das
 Datenmodell/Gating ist bereits fertig), sowie die übrigen Premium-Vorteile aus §15 (werbefrei,
-erweiterte Filter, unbegrenzte Gruppen, Statistiken), Filmabend-**Abstimmung** (§21: Doodle-artige
-Mehrfachoptionen-Abstimmung unter den Mitgliedern), RSVP/Zusagen, zeitgesteuerte Reminder, Werbung.
+unbegrenzte Gruppen, Statistiken - die Master-Spezifikation nennt für „unbegrenzte Gruppen" kein
+konkretes Free-Limit und für „Statistiken" keinen konkreten Inhalt, beides bleibt daher eine offene
+Produktentscheidung), Filmabend-**Abstimmung** (§21: Doodle-artige Mehrfachoptionen-Abstimmung unter
+den Mitgliedern), RSVP/Zusagen, zeitgesteuerte Reminder, Werbung (AdMob - benötigt echte
+Ad-Unit-IDs/App-Konfiguration, die in dieser Umgebung nicht existiert).
 
 ## Tech-Stack
 
@@ -272,15 +285,17 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
 
 ### Filtersystem (§10)
 
-- **Umfang:** Plattform (Einzelauswahl inkl. „Alle" im MVP – Mehrfachauswahl ist laut §15
-  ausdrücklich ein Premium-Feature und nicht Teil dieses Schritts), Genre (Mehrfachauswahl,
-  ODER-verknüpft), Erscheinungsjahr (Bereich „von/bis", 1900 bis aktuelles Jahr – dynamisch über
-  `DateTime.now()`, nicht hartkodiert), Mindestbewertung (native TMDB-`vote_average`-Skala 0–10)
-  und Filmlänge (Bereich „von/bis Minuten", 0–240). Alle konkreten Wertebereiche wurden explizit
-  mit dem Product Owner abgestimmt, da die Master-Spezifikation selbst keine Zahlen nennt.
+- **Umfang:** Plattform (Free: Einzelauswahl inkl. „Alle"; Premium: Mehrfachauswahl, ODER-verknüpft
+  – laut §15 ausdrücklich ein Premium-Feature, seit diesem Schritt umgesetzt, siehe „Premium-
+  Mehrfachauswahl" unten), Genre (Mehrfachauswahl, ODER-verknüpft), Erscheinungsjahr (Bereich
+  „von/bis", 1900 bis aktuelles Jahr – dynamisch über `DateTime.now()`, nicht hartkodiert),
+  Mindestbewertung (native TMDB-`vote_average`-Skala 0–10) und Filmlänge (Bereich „von/bis
+  Minuten", 0–240). Alle konkreten Wertebereiche wurden explizit mit dem Product Owner
+  abgestimmt, da die Master-Spezifikation selbst keine Zahlen nennt.
 - **Architektur:** `MovieFilter` (`lib/models/movie_filter.dart`, reines Wert-Objekt, kein
-  Firestore-Modell) → `TmdbService.discoverMovies`/`watchProviderList` (native TMDB-Discover-
-  Parameter: `with_watch_providers`, `with_genres` mit Pipe-Syntax für ODER,
+  Firestore-Modell; `watchProviderIds`/`genreIds` sind beide `Set<int>` mit identischer
+  ODER-Semantik) → `TmdbService.discoverMovies`/`watchProviderList` (native TMDB-Discover-
+  Parameter: `with_watch_providers` und `with_genres` beide mit Pipe-Syntax für ODER,
   `primary_release_date.gte`/`.lte`, `vote_average.gte`, `with_runtime.gte`/`.lte`) →
   `MovieRepository.discoverMovies(filter:)`/`getAvailableWatchProviders()`/`getGenres()` →
   `MovieFilterController` (`movie_filter_provider.dart`, session-lokaler `Notifier` pro Gruppe) →
@@ -288,6 +303,19 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   einen vollständigen Neuaufbau der Warteschlange aus – keine alten, unter dem vorherigen Filter
   geladenen Filme bleiben zurück) → `MovieFilterScreen` (UI). Keine zweite TMDB-Integration, keine
   neue Firestore-Collection.
+- **Premium-Mehrfachauswahl beim Plattform-Filter (§15):** `MovieFilterScreen` liest
+  `isPremiumProvider` (`lib/providers/swipe_provider.dart`, bereits für das Super-Swipe-Gating
+  vorhanden) und reicht den bestätigten Status an `_PlatformSelector` durch. Free-User (inkl.
+  ladendem/unbestätigtem Status – sicherer Standard) sehen unveränderte `ChoiceChip`s
+  (Einzelauswahl: eine neue Auswahl ersetzt die vorherige) plus einen ehrlichen Hinweistext
+  („Mehrere Plattformen gleichzeitig ist ein Premium-Feature."); bestätigte Premium-User sehen
+  stattdessen `FilterChip`s (Mehrfachauswahl per Toggle, exakt wie beim bestehenden Genre-Filter).
+  **Sicherheit:** Da `MovieFilter` rein clientseitig/session-lokal ist (kein Firestore-Feld,
+  keine Freigabe an andere Nutzer/Gruppen), gibt es keine serverseitig zu schützende Ressource –
+  die UI-Beschränkung ist hier bewusst die einzige und ausreichende Durchsetzung. Das
+  unterscheidet sich von Super Swipe (§6/§15), wo die UI-Anzeige nur informativ ist und die
+  tatsächliche Absicherung über die Firestore Rule `isPremium()` erfolgt, weil dort ein Firestore-
+  Dokument geschrieben wird.
 - **Plattformliste:** Echte, bei TMDB für die konfigurierte Region tatsächlich verfügbare
   Streaming-Anbieter (`/watch/providers/movie`, im `MovieRepository` gecacht) – keine selbst
   erfundene Plattformliste.

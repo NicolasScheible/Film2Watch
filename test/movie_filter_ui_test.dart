@@ -151,8 +151,82 @@ void main() {
       await tester.pumpAndSettle();
 
       final filter = container.read(movieFilterControllerProvider(groupId));
-      expect(filter.watchProviderId, 8);
+      expect(filter.watchProviderIds, {8});
       expect(filter.isActive, isTrue);
+    });
+
+    testWidgets('Free-User: eine zweite Plattform ersetzt die erste statt sie zu ergänzen (Einzelauswahl)',
+        (tester) async {
+      addTearDown(tester.view.resetPhysicalSize);
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+
+      final container = await _readyContainer(
+        firestore: firestore,
+        auth: auth,
+        tmdbService: _tmdbService(providers: {8: 'Netflix', 9: 'Amazon Prime Video'}),
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(home: MovieFilterScreen(groupId: groupId)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Mehrere Plattformen gleichzeitig ist ein Premium-Feature.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Netflix'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Amazon Prime Video'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Anwenden'));
+      await tester.pumpAndSettle();
+
+      final filter = container.read(movieFilterControllerProvider(groupId));
+      expect(filter.watchProviderIds, {9});
+    });
+
+    testWidgets('Premium-User kann mehrere Plattformen gleichzeitig auswählen (§15)', (tester) async {
+      addTearDown(tester.view.resetPhysicalSize);
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': true});
+      final container = await _readyContainer(
+        firestore: firestore,
+        auth: auth,
+        tmdbService: _tmdbService(providers: {8: 'Netflix', 9: 'Amazon Prime Video'}),
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(home: MovieFilterScreen(groupId: groupId)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Mehrere Plattformen gleichzeitig ist ein Premium-Feature.'),
+        findsNothing,
+      );
+
+      await tester.tap(find.text('Netflix'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Amazon Prime Video'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Anwenden'));
+      await tester.pumpAndSettle();
+
+      final filter = container.read(movieFilterControllerProvider(groupId));
+      expect(filter.watchProviderIds, {8, 9});
     });
 
     testWidgets('mehrere Genres können gleichzeitig ausgewählt werden (Mehrfachauswahl)',
@@ -201,7 +275,7 @@ void main() {
       addTearDown(container.dispose);
       container
           .read(movieFilterControllerProvider(groupId).notifier)
-          .update(const MovieFilter(watchProviderId: 8));
+          .update(const MovieFilter(watchProviderIds: {8}));
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -361,7 +435,7 @@ void main() {
 
       container
           .read(movieFilterControllerProvider(groupId).notifier)
-          .update(const MovieFilter(watchProviderId: 8, genreIds: {28}));
+          .update(const MovieFilter(watchProviderIds: {8}, genreIds: {28}));
       await tester.pumpAndSettle();
 
       badge = tester.widget<Badge>(find.byType(Badge));

@@ -30,7 +30,7 @@ class MovieRepository {
     final genreNames = await _genreNames();
     final json = await _tmdbService.discoverMovies(
       page: page,
-      watchProviderId: filter.watchProviderId,
+      watchProviderIds: filter.watchProviderIds,
       genreIds: filter.genreIds,
       yearFrom: filter.yearFrom,
       yearTo: filter.yearTo,

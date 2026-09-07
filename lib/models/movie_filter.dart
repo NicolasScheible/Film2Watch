@@ -12,7 +12,7 @@
 /// TMDB-Query).
 class MovieFilter {
   const MovieFilter({
-    this.watchProviderId,
+    this.watchProviderIds = const {},
     this.genreIds = const {},
     this.yearFrom,
     this.yearTo,
@@ -21,10 +21,12 @@ class MovieFilter {
     this.runtimeToMinutes,
   });
 
-  /// TMDB `provider_id` einer einzelnen Streaming-Plattform. Einzelauswahl
-  /// im MVP (Mehrfachauswahl ist laut §15 ein Premium-Feature) - `null`
-  /// bedeutet "alle Plattformen" (kein Filter).
-  final int? watchProviderId;
+  /// TMDB `provider_id`s der gewählten Streaming-Plattformen. Mehrere
+  /// Plattformen werden mit ODER verknüpft (ein Film muss auf mindestens
+  /// einer davon verfügbar sein) - Mehrfachauswahl ist laut §15 ein
+  /// Premium-Feature, Free-Nutzer wählen in der UI nur eine Plattform.
+  /// Eine leere Menge bedeutet "alle Plattformen" (kein Filter).
+  final Set<int> watchProviderIds;
 
   /// TMDB Genre-IDs. Mehrere Genres werden mit ODER verknüpft (ein Film
   /// muss mindestens eines der gewählten Genres haben).
@@ -40,7 +42,7 @@ class MovieFilter {
   final int? runtimeToMinutes;
 
   bool get isActive =>
-      watchProviderId != null ||
+      watchProviderIds.isNotEmpty ||
       genreIds.isNotEmpty ||
       yearFrom != null ||
       yearTo != null ||
@@ -50,7 +52,7 @@ class MovieFilter {
 
   /// Anzahl der aktiven Filterkriterien - für ein Badge in der UI.
   int get activeCount => [
-        watchProviderId != null,
+        watchProviderIds.isNotEmpty,
         genreIds.isNotEmpty,
         yearFrom != null || yearTo != null,
         minRating != null && minRating! > 0,
@@ -60,8 +62,7 @@ class MovieFilter {
   static const MovieFilter empty = MovieFilter();
 
   MovieFilter copyWith({
-    int? watchProviderId,
-    bool clearWatchProviderId = false,
+    Set<int>? watchProviderIds,
     Set<int>? genreIds,
     int? yearFrom,
     bool clearYearFrom = false,
@@ -75,7 +76,7 @@ class MovieFilter {
     bool clearRuntimeToMinutes = false,
   }) {
     return MovieFilter(
-      watchProviderId: clearWatchProviderId ? null : (watchProviderId ?? this.watchProviderId),
+      watchProviderIds: watchProviderIds ?? this.watchProviderIds,
       genreIds: genreIds ?? this.genreIds,
       yearFrom: clearYearFrom ? null : (yearFrom ?? this.yearFrom),
       yearTo: clearYearTo ? null : (yearTo ?? this.yearTo),
@@ -89,7 +90,8 @@ class MovieFilter {
   @override
   bool operator ==(Object other) =>
       other is MovieFilter &&
-      other.watchProviderId == watchProviderId &&
+      other.watchProviderIds.length == watchProviderIds.length &&
+      other.watchProviderIds.containsAll(watchProviderIds) &&
       other.genreIds.length == genreIds.length &&
       other.genreIds.containsAll(genreIds) &&
       other.yearFrom == yearFrom &&
@@ -100,7 +102,7 @@ class MovieFilter {
 
   @override
   int get hashCode => Object.hash(
-        watchProviderId,
+        Object.hashAllUnordered(watchProviderIds),
         Object.hashAllUnordered(genreIds),
         yearFrom,
         yearTo,
