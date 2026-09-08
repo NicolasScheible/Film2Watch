@@ -4,31 +4,37 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Filmabend-Abstimmung (§21)**. §21 nennt in der Master-Spezifikation
-ausschließlich den Begriff „Filmabend-Abstimmung" in einer Ausblick-Liste, ohne weitere Details zu
-Mechanik oder Feldern - alle konkreten Verhaltensregeln (Mehrfachauswahl pro Teilnehmer, wer
-erstellen/abstimmen darf, Deadline, automatische Auswertung, Gleichstand-Regel, automatisches
-Anlegen des Ergebnis-Filmabends) wurden **explizit mit dem Produktverantwortlichen abgestimmt**,
-da die Spezifikation dazu nichts vorgibt. Ergänzt die einfache §12-Terminplanung
-(`movie_nights`, weiterhin unverändert für einen einzelnen, abstimmungsfreien Terminvorschlag) um
-den dort bewusst zurückgestellten Abstimmungsfall - beide Features bleiben getrennt. Siehe
-„Filmabend-Abstimmung" unten für die vollständige Herleitung und Architektur. Premium-
-Mehrfachauswahl beim Plattform-Filter (§15), Filmabend-/Terminplanung (§12), Profil-, Freundes-,
-Profilbild-, Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button,
-Watchlist-Eintrag entfernen, vollem Boost-Algorithmus inkl. Cast-Anti-Boost und Super-Swipe-UI),
-Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den vorherigen Schritten
-unverändert.
+Aktueller Schritt: **Boost-Bonus für Super Swipe (§6/§15)**. §6 nennt für "erhöht Boost
+zusätzlich" keinen Wert - **mit dem Produktverantwortlichen abgestimmt**: ein flacher Bonus von
++30 (wie die Genre-Präferenz), der anders als der Freundes-Likes-Boost für die **gesamte Gruppe**
+gilt (§6: "Signalisiert der **Gruppe**"). Siehe „Super Swipe (§6/§15)" unten für die vollständige
+Herleitung. Filmabend-Abstimmung (§21), Premium-Mehrfachauswahl beim Plattform-Filter (§15),
+Filmabend-/Terminplanung (§12), Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Swipe- (inkl.
+Watchlist-Ansicht, Filtersystem, Trailer-Button, Watchlist-Eintrag entfernen, Cast-Anti-Boost und
+Super-Swipe-UI), Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den
+vorherigen Schritten unverändert.
 
-Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
-Boost-Bonus für Super Swipe (Master-Spezifikation nennt keinen Wert), **echte Premium-Aktivierung**
-(RevenueCat/App-Store-/Play-Store-Abo - benötigt
-externe Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; nur das
-Datenmodell/Gating ist bereits fertig), sowie die übrigen Premium-Vorteile aus §15 (werbefrei,
-unbegrenzte Gruppen, Statistiken - die Master-Spezifikation nennt für „unbegrenzte Gruppen" kein
-konkretes Free-Limit und für „Statistiken" keinen konkreten Inhalt, beides bleibt daher eine offene
-Produktentscheidung), RSVP/Zusagen (§21 nennt nur die Abstimmung selbst, kein separates
-Teilnahme-Zusagen-Konzept), zeitgesteuerte Reminder, Werbung (AdMob - benötigt echte
-Ad-Unit-IDs/App-Konfiguration, die in dieser Umgebung nicht existiert).
+Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten - für die mit „bereits
+entschieden" markierten Punkte liegt die Produktentscheidung bereits vor, nur die Umsetzung selbst
+folgt noch als eigener Schritt):
+- **Echte Premium-Aktivierung** (RevenueCat/App-Store-/Play-Store-Abo) - benötigt externe
+  Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; nur das Datenmodell/Gating
+  ist bereits fertig.
+- **Gruppen-Limit für Free-User** (§15 „Unbegrenzte Gruppen") - **bereits entschieden:** 3 Gruppen
+  für Free-User, unbegrenzt für Premium.
+- **Statistiken** (§15 „Detaillierte Statistiken") - **bereits entschieden:** einfache Kennzahlen
+  aus bereits vorhandenen Daten (Anzahl Swipes/Matches/Filmabende, Lieblingsgenre aus
+  `user_preferences`) - keine neue Tracking-Infrastruktur.
+- **Zeitgesteuerter Reminder** (§12/§21, zusätzlich zum bereits bestehenden Sofort-Push bei der
+  Erstellung eines Filmabends) - **bereits entschieden:** 1 Tag vor dem Termin.
+- **Werbefrei** (§15) - hängt am selben Blocker wie Werbung/AdMob unten.
+- **Werbung** (AdMob, §14) - die Master-Spezifikation nennt tatsächlich konkrete Parameter
+  (Video-Ad ca. alle 10 Swipes, 5–10 Sekunden, ab 3 Sekunden überspringbar, für Premium-User keine
+  Werbung) - **bereits entschieden:** zurückgestellt, da diese Entwicklungsumgebung keine
+  Android-/iOS-Build-Toolchain hat, um eine native `google_mobile_ads`-Integration durch einen
+  echten Build zu verifizieren.
+- **Filmabend-Abstimmung/RSVP/Zusagen** (§21 nennt nur die Abstimmung selbst, kein separates
+  Teilnahme-Zusagen-Konzept) - bleibt außerhalb des Umfangs von §21.
 
 ## Tech-Stack
 
@@ -459,9 +465,15 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
 - **Mit dem Product Owner abgestimmte Punkte** (die Master-Spezifikation beantwortet diese nicht
   eindeutig – erfunden wurde hier bewusst nichts, sondern vor der Implementierung explizit
   nachgefragt):
-  - **Boost-Bonus:** §6 nennt keinen Wert für „erhöht Boost zusätzlich" – dieser Teil ist **bewusst
-    zurückgestellt**. Ein Super Swipe hat aktuell keinen Effekt auf `computeBoostScore`
-    (`lib/utils/boost.dart`, unverändert).
+  - **Boost-Bonus:** §6 nennt keinen Wert für „erhöht Boost zusätzlich" – mit dem
+    Produktverantwortlichen explizit abgestimmt: ein flacher Bonus von **+30** (`computeBoostScore`,
+    `lib/utils/boost.dart`), derselbe Betrag wie die Genre-Präferenz, da beide binäre
+    "trifft zu/trifft nicht zu"-Signale sind. Anders als der Freundes-Likes-Boost gilt das
+    Super-Swipe-Signal für die **gesamte Gruppe** (nicht nur Freunde des aktuellen Users) – §6
+    beschreibt es ausdrücklich als "Signalisiert der **Gruppe**". Flach statt kumulativ: ob ein
+    oder mehrere Mitglieder denselben Film super-geswiped haben, macht keinen Unterschied
+    (`Set<int>` statt Zähler). Neue `SwipeRepository.getGroupSuperSwipes()` liefert alle
+    Super-Swipe-Entscheidungen der Gruppe, analog zu `getGroupLikes()`.
   - **Match-Wirkung:** §8 definiert ein Match wörtlich nur über „Like". Ein Super Swipe **zählt wie
     ein Like** für die Match-Bedingung (`functions/matchEngine.js`: `decision === 'like' ||
     decision === 'super'`) – alle Mitglieder müssen weiterhin zugestimmt haben (like oder super),

@@ -72,6 +72,11 @@ const _antiBoostPerGenre = -10.0;
 const _antiBoostPerCastMember = -10.0;
 const _ratingMultiplier = 5.0;
 const _randomMax = 20.0;
+// Mit dem Produktverantwortlichen abgestimmt (§6 nennt keinen Wert für
+// "erhöht Boost zusätzlich"): derselbe flache Bonus wie die
+// Genre-Präferenz, da beide binäre "trifft zu/trifft nicht zu"-Signale
+// sind.
+const _superSwipeBoost = 30.0;
 
 /// Berechnet den vollen personalisierten Boost-Score aus §7 für einen
 /// einzelnen Film:
@@ -104,6 +109,14 @@ const _randomMax = 20.0;
 /// - **Bewertung** (Rating × 5): [Movie.voteAverage] (TMDB `vote_average` -
 ///   dieselbe Quelle, die app-weit bereits als "Bewertung" angezeigt wird,
 ///   siehe z. B. `swipe_card.dart`).
+/// - **Super-Swipe-Bonus** (+30 flat, §6/§15: "Signalisiert der Gruppe: 'Den
+///   will ich unbedingt sehen!' – erhöht Boost zusätzlich."): sobald
+///   irgendein Mitglied dieser Gruppe (nicht nur ein Freund - anders als der
+///   Freundes-Likes-Boost, ist Super Swipe laut §6 ein an die gesamte Gruppe
+///   gerichtetes Signal) den Film in dieser Gruppe super-geswiped hat
+///   ([superSwipedMovieIds]). Mit dem Produktverantwortlichen abgestimmt,
+///   da §6 selbst keinen Wert nennt - derselbe flache Betrag wie die
+///   Genre-Präferenz.
 /// - **Zufallskomponente** (0-20): [random] muss injiziert werden (siehe
 ///   [sortByBoostScore]) - reine Funktion, kein eigener Zufallszugriff hier.
 ///
@@ -118,6 +131,7 @@ double computeBoostScore({
   required Set<int> topGenres,
   required Map<int, int> dislikedGenres,
   required Map<int, int> dislikedCastIds,
+  required Set<int> superSwipedMovieIds,
   required double random,
 }) {
   var score = 0.0;
@@ -137,6 +151,11 @@ double computeBoostScore({
   score += overlappingDislikedCast * _antiBoostPerCastMember;
 
   score += movie.voteAverage * _ratingMultiplier;
+
+  if (superSwipedMovieIds.contains(movie.tmdbId)) {
+    score += _superSwipeBoost;
+  }
+
   score += random;
 
   return score;
@@ -154,6 +173,7 @@ List<Movie> sortByBoostScore(
   required Set<int> topGenres,
   required Map<int, int> dislikedGenres,
   required Map<int, int> dislikedCastIds,
+  required Set<int> superSwipedMovieIds,
   Random? random,
 }) {
   final rng = random ?? Random();
@@ -167,6 +187,7 @@ List<Movie> sortByBoostScore(
           topGenres: topGenres,
           dislikedGenres: dislikedGenres,
           dislikedCastIds: dislikedCastIds,
+          superSwipedMovieIds: superSwipedMovieIds,
           random: rng.nextDouble() * _randomMax,
         ),
       ),

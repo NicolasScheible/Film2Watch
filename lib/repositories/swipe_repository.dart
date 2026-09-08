@@ -114,4 +114,19 @@ class SwipeRepository {
         await _swipes(groupId).where('decision', isEqualTo: SwipeDecision.like.name).get();
     return snapshot.docs.map(MovieSwipe.fromFirestore).toList();
   }
+
+  /// Alle Super-Swipe-Entscheidungen aller Mitglieder dieser Gruppe (nicht
+  /// nur des aktuellen Users, nicht nur Freunde) - Grundlage für den
+  /// Super-Swipe-Boost (§6/§15: "Signalisiert der Gruppe: 'Den will ich
+  /// unbedingt sehen!' – erhöht Boost zusätzlich."). Anders als
+  /// [getGroupLikes]/der Freundes-Likes-Boost gilt dieses Signal für die
+  /// gesamte Gruppe, keine Einschränkung auf Freunde. `.firestoreValue`
+  /// statt `.name`, da `SwipeDecision.superSwipe` als `'super'` gespeichert
+  /// wird (`super` ist ein reserviertes Dart-Schlüsselwort).
+  Future<List<MovieSwipe>> getGroupSuperSwipes(String groupId) async {
+    final snapshot = await _swipes(groupId)
+        .where('decision', isEqualTo: SwipeDecision.superSwipe.firestoreValue)
+        .get();
+    return snapshot.docs.map(MovieSwipe.fromFirestore).toList();
+  }
 }

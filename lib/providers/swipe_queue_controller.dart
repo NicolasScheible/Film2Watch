@@ -30,6 +30,7 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
   bool _hasMoreTmdbPages = true;
   MovieFilter _filter = MovieFilter.empty;
   Map<int, int> _friendLikeCounts = const {};
+  Set<int> _superSwipedMovieIds = const {};
   UserGenrePreferences _genrePreferences = UserGenrePreferences.empty;
 
   @override
@@ -62,6 +63,12 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
     final friendUids = (await ref.watch(friendUidsProvider.future)).toSet();
     final groupLikes = await ref.read(swipeRepositoryProvider).getGroupLikes(groupId);
     _friendLikeCounts = countFriendLikes(groupLikes: groupLikes, friendUids: friendUids);
+
+    // Super-Swipe-Boost (§6/§15): anders als der Freundes-Boost gilt dieses
+    // Signal für die GESAMTE Gruppe, nicht nur Freunde des aktuellen Users
+    // ("Signalisiert der Gruppe: 'Den will ich unbedingt sehen!'").
+    final groupSuperSwipes = await ref.read(swipeRepositoryProvider).getGroupSuperSwipes(groupId);
+    _superSwipedMovieIds = groupSuperSwipes.map((swipe) => swipe.movieId).toSet();
 
     // Genre-Präferenz/Anti-Boost (§7/§18): serverseitig von
     // `functions/userPreferences.js` gepflegt, hier nur gelesen - global pro
@@ -125,6 +132,7 @@ class SwipeQueueController extends AsyncNotifier<List<Movie>> {
       topGenres: _genrePreferences.topGenres,
       dislikedGenres: _genrePreferences.dislikedGenres,
       dislikedCastIds: _genrePreferences.dislikedCastIds,
+      superSwipedMovieIds: _superSwipedMovieIds,
     );
   }
 

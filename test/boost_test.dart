@@ -161,6 +161,7 @@ void main() {
         topGenres: {27},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 10,
       );
 
@@ -175,6 +176,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 5,
       );
 
@@ -189,6 +191,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       final threeFriends = computeBoostScore(
@@ -197,6 +200,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 0,
       );
 
@@ -211,6 +215,7 @@ void main() {
         topGenres: {27},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       final twoMatches = computeBoostScore(
@@ -219,6 +224,7 @@ void main() {
         topGenres: {27, 28},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 0,
       );
 
@@ -233,6 +239,7 @@ void main() {
         topGenres: {27},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       expect(score, closeTo(0, 0.0001));
@@ -245,6 +252,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: {27: 5},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       final twoOverlaps = computeBoostScore(
@@ -253,6 +261,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: {27: 1, 28: 1},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 0,
       );
 
@@ -267,6 +276,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: {27: 500},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       expect(score, closeTo(-10, 0.0001));
@@ -279,6 +289,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       expect(score, closeTo(36.0, 0.0001));
@@ -291,6 +302,7 @@ void main() {
         topGenres: {27},
         dislikedGenres: {28: 1},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: 3,
       );
       // 2*40 (Freunde) + 30 (Genre) + 0 (kein Anti-Boost, Genre 28 nicht im Film) + 25 (Rating) + 3 (Zufall)
@@ -307,6 +319,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: {900: 1},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       expect(score, closeTo(-10, 0.0001));
@@ -319,6 +332,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: {111: 1},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       expect(score, closeTo(0, 0.0001));
@@ -331,6 +345,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: {27: 1},
         dislikedCastIds: {900: 1},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       expect(score, closeTo(-10, 0.0001));
@@ -343,6 +358,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: {27: 1},
         dislikedCastIds: {900: 1},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       expect(score, closeTo(-20, 0.0001));
@@ -355,6 +371,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: {900: 1, 901: 1},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       // Nur 900 und 901 überschneiden sich, 902 nicht -> 2 * -10.
@@ -368,9 +385,55 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: {900: 500},
+        superSwipedMovieIds: const {},
         random: 0,
       );
       expect(score, closeTo(-10, 0.0001));
+    });
+
+    // Super-Swipe-Boost (§6/§15: "Signalisiert der Gruppe: 'Den will ich
+    // unbedingt sehen!' – erhöht Boost zusätzlich.") - mit dem
+    // Produktverantwortlichen abgestimmter flacher Bonus von +30, da §6
+    // selbst keinen Wert nennt.
+    test('ein super-geswipter Film erhält den flachen +30-Bonus', () {
+      final score = computeBoostScore(
+        movie: _movie(1),
+        friendLikeCounts: const {},
+        topGenres: const {},
+        dislikedGenres: const {},
+        dislikedCastIds: const {},
+        superSwipedMovieIds: {1},
+        random: 0,
+      );
+      expect(score, closeTo(30, 0.0001));
+    });
+
+    test('ohne Super Swipe kein Bonus', () {
+      final score = computeBoostScore(
+        movie: _movie(1),
+        friendLikeCounts: const {},
+        topGenres: const {},
+        dislikedGenres: const {},
+        dislikedCastIds: const {},
+        superSwipedMovieIds: {2},
+        random: 0,
+      );
+      expect(score, closeTo(0, 0.0001));
+    });
+
+    test('der Super-Swipe-Bonus ist flach, nicht kumulativ (anders als der Freundes-Boost)', () {
+      final score = computeBoostScore(
+        movie: _movie(1),
+        friendLikeCounts: const {},
+        topGenres: const {},
+        dislikedGenres: const {},
+        dislikedCastIds: const {},
+        superSwipedMovieIds: {1},
+        random: 0,
+      );
+      // Ob ein oder mehrere Mitglieder super-geswiped haben, macht keinen
+      // Unterschied - superSwipedMovieIds ist ein Set, keine Zählung.
+      expect(score, closeTo(30, 0.0001));
     });
   });
 
@@ -387,6 +450,7 @@ void main() {
         topGenres: {27},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: Random(1),
       );
 
@@ -401,6 +465,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: Random(9),
       );
 
@@ -416,6 +481,7 @@ void main() {
           topGenres: const {},
           dislikedGenres: const {},
           dislikedCastIds: const {},
+          superSwipedMovieIds: const {},
         ),
         isEmpty,
       );
@@ -429,6 +495,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: Random(55),
       );
       final second = sortByBoostScore(
@@ -437,6 +504,7 @@ void main() {
         topGenres: const {},
         dislikedGenres: const {},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: Random(55),
       );
 
@@ -458,7 +526,26 @@ void main() {
         topGenres: const {},
         dislikedGenres: {1: 1, 2: 1, 3: 1},
         dislikedCastIds: const {},
+        superSwipedMovieIds: const {},
         random: Random(2),
+      );
+
+      expect(sorted.first.tmdbId, 2);
+    });
+
+    test('ein super-geswipter Film wird zuverlässig über unbeeinflusste Filme sortiert', () {
+      // +30 liegt immer über dem Zufallsbereich [0, 20) eines unbeeinflussten
+      // Films - unabhängig vom RNG-Seed ist der super-geswipte Film also
+      // garantiert höher.
+      final movies = [_movie(1), _movie(2)];
+      final sorted = sortByBoostScore(
+        movies,
+        friendLikeCounts: const {},
+        topGenres: const {},
+        dislikedGenres: const {},
+        dislikedCastIds: const {},
+        superSwipedMovieIds: {2},
+        random: Random(4),
       );
 
       expect(sorted.first.tmdbId, 2);

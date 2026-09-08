@@ -606,6 +606,91 @@ void main() {
     });
   });
 
+  group('SwipeQueueController - Super-Swipe-Boost (§6/§15)', () {
+    Future<void> superSwipeMovieAs(
+      FakeFirebaseFirestore firestore,
+      String groupId,
+      String uid,
+      int movieId,
+    ) {
+      final now = DateTime.now();
+      return firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('swipes')
+          .doc('${uid}_$movieId')
+          .set(MovieSwipe(
+            uid: uid,
+            movieId: movieId,
+            decision: SwipeDecision.superSwipe,
+            createdAt: now,
+            updatedAt: now,
+          ).toFirestore());
+    }
+
+    test('ein super-geswipter Film wird in der Queue priorisiert (an die Spitze sortiert)', () async {
+      final firestore = FakeFirebaseFirestore();
+      await superSwipeMovieAs(firestore, 'g1', 'bob', 3);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3, 4]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.first.tmdbId, 3);
+    });
+
+    test('gilt für die gesamte Gruppe, nicht nur für Freunde (anders als der Freundes-Likes-Boost)',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      // "stranger" ist NICHT mit alice befreundet - das Super-Swipe-Signal
+      // wirkt trotzdem, da es sich laut §6 an die gesamte Gruppe richtet.
+      await superSwipeMovieAs(firestore, 'g1', 'stranger', 2);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.first.tmdbId, 2);
+    });
+
+    test('Super Swipes aus einer anderen Gruppe beeinflussen den Boost dieser Gruppe nicht (Gruppentrennung)',
+        () async {
+      final firestore = FakeFirebaseFirestore();
+      // Super Swipe in einer ANDEREN Gruppe (g2), nicht in g1.
+      await superSwipeMovieAs(firestore, 'g2', 'bob', 2);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      final queue = await container.read(swipeQueueControllerProvider('g1').future);
+
+      expect(queue.map((m) => m.tmdbId).toSet(), {1, 2, 3});
+    });
+
+    test('ein Super Swipe erzeugt niemals selbst ein Match-Dokument', () async {
+      final firestore = FakeFirebaseFirestore();
+      await superSwipeMovieAs(firestore, 'g1', 'bob', 1);
+
+      final tmdbService = _tmdbServiceForPages({1: [1, 2, 3]}, totalPages: 1);
+      final container = _buildContainer(firestore: firestore, tmdbService: tmdbService);
+      addTearDown(container.dispose);
+      await container.read(authStateChangesProvider.future);
+
+      await container.read(swipeQueueControllerProvider('g1').future);
+
+      final matches = await firestore.collection('groups/g1/matches').get();
+      expect(matches.docs, isEmpty);
+    });
+  });
+
   group('SwipeQueueController - Cast-Anti-Boost (§7: "gleicher Hauptdarsteller")', () {
     Future<void> setDislikedCastIds(FakeFirebaseFirestore firestore, String uid, Map<int, int> dislikedCastIds) {
       return firestore.collection('user_preferences').doc(uid).set({
