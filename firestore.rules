@@ -36,6 +36,13 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/premium_status/$(uid)).data.is_premium == true;
     }
 
+    // Lädt die übergeordnete Abstimmung (§21: "Filmabend-Abstimmung") - für
+    // die Options- und Votes-Regeln unten, die Status/Deadline der
+    // Abstimmung prüfen müssen, ohne sie selbst verändern zu dürfen.
+    function moviePollDoc(groupId, pollId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)/movie_night_polls/$(pollId));
+    }
+
     // Privates Profil (u. a. E-Mail). Nur der Owner darf lesen/schreiben.
     // uid, email, friend_code und created_at dürfen nach dem Anlegen nie
     // mehr verändert werden (auch nicht vom Owner selbst).
@@ -308,8 +315,9 @@ service cloud.firestore {
       }
 
       // Geplante Filmabende (§12: "Filmabend planen" - Datum/Uhrzeit/
-      // Plattform + optional ein Film, KEINE Abstimmung/RSVP, siehe §21,
-      // ausdrücklich zurückgestellt). Firestore Auto-ID, eine Gruppe kann
+      // Plattform + optional ein Film, ein einzelner Terminvorschlag ohne
+      // Abstimmung/RSVP; die komplexere Mehrfachoptionen-Abstimmung ist §21,
+      // siehe `movie_night_polls` unten). Firestore Auto-ID, eine Gruppe kann
       // mehrere geplante Filmabende gleichzeitig haben. Jedes Mitglied darf
       // anlegen; bearbeiten/absagen darf ausschließlich der Ersteller selbst
       // oder ein Admin der Gruppe - mit dem Produktverantwortlichen
@@ -357,6 +365,96 @@ service cloud.firestore {
         // kein separater "abgesagt"-Status).
         allow delete: if isGroupMember(groupId)
           && (request.auth.uid == resource.data.created_by || isGroupAdmin(groupId));
+      }
+
+      // Filmabend-Abstimmungen (§21: "Filmabend-Abstimmung" - mehrere
+      // Terminvorschläge, jedes Mitglied darf mehrere passende Optionen
+      // wählen [Doodle-Prinzip], feste Deadline, automatische Auswertung).
+      // Ergänzt die einfache §12-Terminplanung (`movie_nights` oben) um den
+      // dort bewusst zurückgestellten Abstimmungsfall - mit dem
+      // Produktverantwortlichen abgestimmt.
+      //
+      // Jedes Mitglied darf anlegen. `created_by`/`created_at`/`deadline`/
+      // `status` sind die einzigen beim Anlegen erlaubten Felder (`hasOnly`)
+      // - `winning_option_id`/`result_movie_night_id`/`resolved_at` können
+      // also strukturell nie durch einen Client gesetzt werden. Die
+      // Abstimmung selbst ist nach dem Anlegen für jeden Client vollständig
+      // unveränderlich (`allow update, delete: if false`): der Gewinner wird
+      // ausschließlich serverseitig von der Scheduled Cloud Function
+      // `functions/moviePollEngine.js` bestimmt (Admin-SDK, umgeht Rules) -
+      // kein Client, auch nicht der Ersteller, kann die Abstimmung vorzeitig
+      // schließen oder sich selbst zum Gewinner erklären.
+      match /movie_night_polls/{pollId} {
+        allow read: if isGroupMember(groupId);
+
+        allow create: if isGroupMember(groupId)
+          && request.auth.uid == request.resource.data.created_by
+          && request.resource.data.created_at == request.time
+          && request.resource.data.deadline is timestamp
+          && request.resource.data.deadline > request.time
+          && request.resource.data.status == 'open'
+          && request.resource.data.keys().hasOnly(['created_by', 'created_at', 'deadline', 'status']);
+
+        allow update: if false;
+        allow delete: if false;
+
+        // Terminvorschläge einer Abstimmung - dieselben Felder wie ein
+        // `movie_nights`-Termin. Entstehen ausschließlich zusammen mit der
+        // Abstimmung selbst (derselbe Ersteller, solange die Abstimmung noch
+        // offen und die Deadline noch nicht erreicht ist) und sind danach
+        // unveränderlich - kein nachträgliches Hinzufügen/Ändern von
+        // Optionen, das wäre eine Manipulationsmöglichkeit zugunsten des
+        // Erstellers.
+        match /options/{optionId} {
+          allow read: if isGroupMember(groupId);
+
+          allow create: if isGroupMember(groupId)
+            && moviePollDoc(groupId, pollId).data.created_by == request.auth.uid
+            && moviePollDoc(groupId, pollId).data.status == 'open'
+            && request.time < moviePollDoc(groupId, pollId).data.deadline
+            && request.resource.data.scheduled_at is timestamp
+            && request.resource.data.platform_id is int
+            && (!('movie_id' in request.resource.data) || (
+                 request.resource.data.movie_id is int
+                 && exists(/databases/$(database)/documents/groups/$(groupId)/matches/$(string(request.resource.data.movie_id)))
+               ))
+            && request.resource.data.keys().hasOnly(['scheduled_at', 'platform_id', 'movie_id']);
+
+          allow update: if false;
+          allow delete: if false;
+        }
+
+        // Stimmen. Dokument-ID ist deterministisch "{uid}_{optionId}" (analog
+        // zu `swipes/{uid}_{movieId}`) - verhindert Mehrfachstimmen
+        // desselben Users für dieselbe Option strukturell. Ein User darf
+        // mehrere Stimmen (für mehrere Optionen) haben, aber ausschließlich
+        // seine eigenen anlegen/löschen - eine erneute Abstimmung läuft über
+        // Löschen der nicht mehr gewählten und Anlegen der neu gewählten
+        // Stimmen (siehe `MoviePollRepository.setMyVotes`). Lesbar für alle
+        // Mitglieder, analog zu `swipes` oben. Sowohl Anlegen als auch
+        // Löschen sind ausschließlich vor der Deadline einer noch offenen
+        // Abstimmung erlaubt - das serverseitige Zeit-Gate, das clientseitig
+        // niemals umgangen werden kann.
+        match /votes/{voteId} {
+          allow read: if isGroupMember(groupId);
+
+          allow create: if isGroupMember(groupId)
+            && request.auth.uid == request.resource.data.uid
+            && request.resource.data.option_id is string
+            && voteId == request.auth.uid + '_' + request.resource.data.option_id
+            && exists(/databases/$(database)/documents/groups/$(groupId)/movie_night_polls/$(pollId)/options/$(request.resource.data.option_id))
+            && moviePollDoc(groupId, pollId).data.status == 'open'
+            && request.time < moviePollDoc(groupId, pollId).data.deadline
+            && request.resource.data.voted_at == request.time
+            && request.resource.data.keys().hasOnly(['uid', 'option_id', 'voted_at']);
+
+          allow update: if false;
+
+          allow delete: if isGroupMember(groupId)
+            && request.auth.uid == resource.data.uid
+            && moviePollDoc(groupId, pollId).data.status == 'open'
+            && request.time < moviePollDoc(groupId, pollId).data.deadline;
+        }
       }
     }
 

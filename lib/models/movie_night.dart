@@ -1,11 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Ein geplanter Filmabend (§12 der Master-Spezifikation: "Filmabend planen"
-/// - Datum/Uhrzeit/Plattform + Reminder-Push). Bewusst NICHT die komplexere,
-/// mit dem Produktverantwortlichen ausdrücklich zurückgestellte
-/// "Filmabend-Abstimmung" (§21: Doodle-artige Mehrfachoptionen-Abstimmung
-/// unter den Mitgliedern) - kein Voting, kein RSVP, nur ein einzelner
-/// Terminvorschlag.
+/// - Datum/Uhrzeit/Plattform + Reminder-Push), ein einzelner Terminvorschlag
+/// ohne Abstimmung/RSVP. Die komplexere Mehrfachoptionen-Abstimmung (§21:
+/// "Filmabend-Abstimmung") ist ein separates Feature, siehe `MoviePoll` -
+/// ein automatisch ausgewerteter `MoviePoll` legt am Ende ebenfalls ein
+/// `MovieNight`-Dokument an (derselbe Datenvertrag), erzeugt aber nie ein
+/// zweites, eigenes Terminmodell.
 ///
 /// `groups/{groupId}/movie_nights/{movieNightId}`, Firestore Auto-ID (eine
 /// Gruppe kann mehrere geplante Filmabende gleichzeitig haben, analog zu
