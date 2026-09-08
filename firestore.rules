@@ -346,6 +346,17 @@ service cloud.firestore {
                ['created_by', 'created_at', 'updated_at', 'scheduled_at', 'platform_id', 'movie_id']
              );
 
+        // `reminder_sent_at` ist in `hasOnly` erlaubt, aber niemals Teil
+        // dessen, was ein Client selbst setzt (`MovieNight.toFirestoreUpdate`
+        // löscht das Feld bei jeder Bearbeitung immer über
+        // `FieldValue.delete()`) - erlaubt lediglich, dass ein bereits vom
+        // zeitgesteuerten Reminder (Scheduled Cloud Function, Admin-SDK,
+        // umgeht Rules) gesetzter Wert nicht dazu führt, dass eine
+        // nachfolgende, normale Bearbeitung durch `hasOnly` fälschlich
+        // abgelehnt wird. Zusätzlich abgesichert gegen Fälschung: ist das
+        // Feld im Ergebnis überhaupt vorhanden, muss es exakt dem bereits
+        // gespeicherten Wert entsprechen (unverändert) - ein Client kann es
+        // also niemals auf einen eigenen, erfundenen Zeitpunkt setzen.
         allow update: if isGroupMember(groupId)
           && (request.auth.uid == resource.data.created_by || isGroupAdmin(groupId))
           && request.resource.data.created_by == resource.data.created_by
@@ -357,8 +368,12 @@ service cloud.firestore {
                request.resource.data.movie_id is int
                && exists(/databases/$(database)/documents/groups/$(groupId)/matches/$(string(request.resource.data.movie_id)))
              ))
+          && (!('reminder_sent_at' in request.resource.data) || (
+               'reminder_sent_at' in resource.data
+               && request.resource.data.reminder_sent_at == resource.data.reminder_sent_at
+             ))
           && request.resource.data.keys().hasOnly(
-               ['created_by', 'created_at', 'updated_at', 'scheduled_at', 'platform_id', 'movie_id']
+               ['created_by', 'created_at', 'updated_at', 'scheduled_at', 'platform_id', 'movie_id', 'reminder_sent_at']
              );
 
         // Absagen/Löschen (§12: austauschbare Begriffe für dieselbe Aktion,

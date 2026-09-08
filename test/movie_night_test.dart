@@ -98,5 +98,14 @@ void main() {
 
       expect(data['movie_id'], 550);
     });
+
+    test('toFirestoreUpdate löscht immer reminder_sent_at (eine Terminverschiebung macht einen bereits versendeten Reminder ungültig)', () {
+      final data = MovieNight.toFirestoreUpdate(
+        scheduledAt: DateTime(2026, 1, 1, 20),
+        platformId: 8,
+      );
+
+      expect(data['reminder_sent_at'], FieldValue.delete());
+    });
   });
 }

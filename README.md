@@ -4,15 +4,16 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Boost-Bonus für Super Swipe (§6/§15)**. §6 nennt für "erhöht Boost
-zusätzlich" keinen Wert - **mit dem Produktverantwortlichen abgestimmt**: ein flacher Bonus von
-+30 (wie die Genre-Präferenz), der anders als der Freundes-Likes-Boost für die **gesamte Gruppe**
-gilt (§6: "Signalisiert der **Gruppe**"). Siehe „Super Swipe (§6/§15)" unten für die vollständige
-Herleitung. Filmabend-Abstimmung (§21), Premium-Mehrfachauswahl beim Plattform-Filter (§15),
-Filmabend-/Terminplanung (§12), Profil-, Freundes-, Profilbild-, Gruppen-, TMDB-, Swipe- (inkl.
-Watchlist-Ansicht, Filtersystem, Trailer-Button, Watchlist-Eintrag entfernen, Cast-Anti-Boost und
-Super-Swipe-UI), Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den
-vorherigen Schritten unverändert.
+Aktueller Schritt: **Zeitgesteuerter Filmabend-Reminder (§12/§21)**. §12 nennt nur "Reminder-Push"
+ohne Zeitangabe - **mit dem Produktverantwortlichen abgestimmt**: zusätzlich zum bereits
+bestehenden Sofort-Push bei der Erstellung (`notifyMovieNightCreated.js`, unverändert) versendet
+eine neue Scheduled Cloud Function (`sendMovieNightReminders`, stündlicher Takt) 1 Tag vor dem
+Termin einen weiteren Push an alle Mitglieder. Siehe „Filmabend-/Terminplanung (§12)" unten für die
+vollständige Herleitung. Boost-Bonus für Super Swipe (§6/§15), Filmabend-Abstimmung (§21),
+Premium-Mehrfachauswahl beim Plattform-Filter (§15), Profil-, Freundes-, Profilbild-, Gruppen-,
+TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button, Watchlist-Eintrag entfernen,
+Cast-Anti-Boost und Super-Swipe-UI), Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-
+Schritt aus den vorherigen Schritten unverändert.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten - für die mit „bereits
 entschieden" markierten Punkte liegt die Produktentscheidung bereits vor, nur die Umsetzung selbst
@@ -25,8 +26,6 @@ folgt noch als eigener Schritt):
 - **Statistiken** (§15 „Detaillierte Statistiken") - **bereits entschieden:** einfache Kennzahlen
   aus bereits vorhandenen Daten (Anzahl Swipes/Matches/Filmabende, Lieblingsgenre aus
   `user_preferences`) - keine neue Tracking-Infrastruktur.
-- **Zeitgesteuerter Reminder** (§12/§21, zusätzlich zum bereits bestehenden Sofort-Push bei der
-  Erstellung eines Filmabends) - **bereits entschieden:** 1 Tag vor dem Termin.
 - **Werbefrei** (§15) - hängt am selben Blocker wie Werbung/AdMob unten.
 - **Werbung** (AdMob, §14) - die Master-Spezifikation nennt tatsächlich konkrete Parameter
   (Video-Ad ca. alle 10 Swipes, 5–10 Sekunden, ab 3 Sekunden überspringbar, für Premium-User keine
@@ -546,9 +545,9 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
     Absagen/Löschen dürfen ausschließlich der Ersteller selbst oder der Gruppen-Admin – andere
     normale Mitglieder dürfen fremde Filmabende weder bearbeiten noch absagen.
   - **Teilnahme/Reminder:** kein RSVP, keine Zu-/Absage-Liste pro Mitglied. Der in §12 genannte
-    Reminder-Push wird direkt bei der Erstellung verschickt (kein zeitgesteuerter Reminder vor dem
-    Termin – das würde eine neue, in diesem Schritt nicht vorgesehene Scheduling-Infrastruktur wie
-    Cloud Scheduler benötigen).
+    Reminder-Push wird direkt bei der Erstellung verschickt. Zusätzlich gibt es (siehe „Zeitgesteuerter
+    Filmabend-Reminder (§12/§21)" oben) einen zeitgesteuerten Reminder **1 Tag vor dem Termin**
+    (Product-Owner-Entscheidung), umgesetzt über die bestehende Scheduled-Cloud-Function-Infrastruktur.
 - **Architektur:** exakt dem bestehenden Standard folgend – `MovieNightRepository`
   (`groups/{groupId}/movie_nights`, Firestore Auto-ID wie `messages`) → `MovieNightService`
   (Mitgliedschafts-/Berechtigungsprüfung, validiert einen optionalen `movie_id` gegen
@@ -591,11 +590,25 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   Benachrichtigungsereignis). Idempotent über das bestehende `claimNotification`-Muster (schützt vor
   doppeltem Versand bei „at-least-once"-Ausführung). Tippen auf die Notification öffnet die Gruppe
   (`NotificationType.movieNight`, identisches Ziel wie eine Match-Notification).
-- **Was bewusst nicht Teil dieses Schritts ist:** RSVP/Zusagen, zeitgesteuerte Reminder,
-  Kalender-Export, Watch Party. Die komplexere Mehrfachoptionen-Abstimmung (§21) ist ein eigener,
-  später umgesetzter Schritt, siehe „Filmabend-Abstimmung (§21)" unten - sie erzeugt am Ende
-  ebenfalls ein `movie_nights`-Dokument über denselben Datenvertrag, dupliziert also keine eigene
-  Terminmodellierung.
+- **Was bewusst nicht Teil dieses Schritts ist:** RSVP/Zusagen, Kalender-Export, Watch Party. Die
+  komplexere Mehrfachoptionen-Abstimmung (§21) ist ein eigener, später umgesetzter Schritt, siehe
+  „Filmabend-Abstimmung (§21)" unten - sie erzeugt am Ende ebenfalls ein `movie_nights`-Dokument über
+  denselben Datenvertrag, dupliziert also keine eigene Terminmodellierung.
+- **Zeitgesteuerter Reminder – Architektur/Security/Notification:** `movieNightReminderEngine.js`
+  exportiert `sendDueMovieNightReminders` (über `sendMovieNightReminders`, Scheduled Function, „every
+  60 minutes" in `functions/index.js`, exakt dasselbe Muster wie `resolveMoviePolls`). Query über
+  `collectionGroup('movie_nights')` auf `scheduled_at` im Fenster `(now, now+24h]` (Single-Field-Range,
+  daher kein neuer Composite-Index nötig); die Prüfung „bereits erinnert?" erfolgt anschließend in
+  JavaScript über `reminder_sent_at`, nicht als zusätzliche Firestore-`where`-Klausel. Versand an
+  **alle** Gruppenmitglieder inklusive Ersteller (anders als bei der Erstellungs-Notification). Idempotent
+  über das bestehende `claimNotification`-Muster (Feld `reminder_sent_at`, transaktional). Wird ein
+  Filmabend bearbeitet (insbesondere Terminänderung), löscht `MovieNight.toFirestoreUpdate` das Feld
+  `reminder_sent_at` (`FieldValue.delete()`) – ein bereits verschickter Reminder wird dadurch entwertet
+  und für den neuen Termin ggf. erneut fällig. `firestore.rules` erlaubt `reminder_sent_at` **nicht**
+  bei `create`; bei `update` toleriert die Regel das unveränderte Feld (nötig, weil ein Admin-SDK-Write
+  außerhalb der Rules `request.resource.data` beim nächsten Client-Update sonst mit `hasOnly`
+  kollidieren würde) und lehnt jeden Versuch ab, den Wert per Client zu fälschen oder zu ändern (Wert
+  muss exakt dem zuvor gespeicherten entsprechen).
 
 ## Filmabend-Abstimmung (§21)
 

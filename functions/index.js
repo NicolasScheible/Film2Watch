@@ -13,6 +13,7 @@ const { postMatchChatMessage } = require('./postMatchChatMessage');
 const { notifyMoviePollCreated } = require('./notifyMoviePollCreated');
 const { notifyMoviePollResolved } = require('./notifyMoviePollResolved');
 const { resolveDuePolls } = require('./moviePollEngine');
+const { sendDueMovieNightReminders } = require('./movieNightReminderEngine');
 
 admin.initializeApp();
 
@@ -303,6 +304,30 @@ exports.resolveMoviePolls = functions.pubsub.schedule('every 5 minutes').onRun(a
     await resolveDuePolls({ firestore: admin.firestore(), now: new Date() });
   } catch (error) {
     functions.logger.error('Abstimmungs-Auswertung fehlgeschlagen', { error: error.message });
+  }
+  return null;
+});
+
+/**
+ * Zeitgesteuerter Reminder-Push für Filmabende (§12/§21, mit dem
+ * Produktverantwortlichen abgestimmt: 1 Tag vor dem Termin) - zusätzlich zum
+ * bereits bestehenden Sofort-Push bei der Erstellung
+ * (`notifyMovieNightCreated.js`, unverändert). Stündlicher Takt: nah genug
+ * an "1 Tag vorher" für den Anwendungsfall, ohne bei sehr vielen Filmabenden
+ * unnötig oft die komplette Collection-Group zu durchsuchen. Wirkt
+ * transparent auch auf Filmabende, die aus einer automatisch ausgewerteten
+ * Filmabend-Abstimmung entstanden sind (§21, `moviePollEngine.js`) - beide
+ * teilen denselben `movie_nights`-Datenvertrag.
+ */
+exports.sendMovieNightReminders = functions.pubsub.schedule('every 60 minutes').onRun(async () => {
+  try {
+    await sendDueMovieNightReminders({
+      firestore: admin.firestore(),
+      messaging: admin.messaging(),
+      now: new Date(),
+    });
+  } catch (error) {
+    functions.logger.error('Filmabend-Reminder fehlgeschlagen', { error: error.message });
   }
   return null;
 });

@@ -85,7 +85,11 @@ class MovieNight {
 
   /// Felder für ein Update eines bestehenden Filmabends - `created_by`/
   /// `created_at` bleiben unveränderlich (nicht Teil dieser Map, siehe
-  /// Firestore Rules).
+  /// Firestore Rules). Löscht immer auch `reminder_sent_at` (den
+  /// serverseitigen Idempotenz-Marker des zeitgesteuerten Reminders, siehe
+  /// `functions/movieNightReminderEngine.js`) - jede Bearbeitung (insbesondere
+  /// eine Terminverschiebung) macht einen bereits versendeten Reminder
+  /// ungültig und muss für den neuen Termin erneut auslösen können.
   static Map<String, dynamic> toFirestoreUpdate({
     required DateTime scheduledAt,
     required int platformId,
@@ -96,6 +100,7 @@ class MovieNight {
       'scheduled_at': Timestamp.fromDate(scheduledAt),
       'platform_id': platformId,
       if (movieId != null) 'movie_id': movieId else 'movie_id': FieldValue.delete(),
+      'reminder_sent_at': FieldValue.delete(),
     };
   }
 }

@@ -10,14 +10,16 @@ import 'firebase/compat/firestore';
 
 // Testet die tatsächliche firestore.rules-Datei des Repos gegen den echten
 // lokalen Firestore-Emulator für geplante Filmabende (§12: "Filmabend
-// planen"). Kein Voting/RSVP (§21 bleibt ausdrücklich zurückgestellt) - nur
-// Anlegen/Bearbeiten/Absagen eines einzelnen Terminvorschlags.
+// planen") - nur Anlegen/Bearbeiten/Absagen eines einzelnen
+// Terminvorschlags, kein Voting/RSVP (die komplexere Mehrfachoptionen-
+// Abstimmung ist §21, siehe `movie_night_polls.rules.test.mjs`).
 //
 // `created_at`/`updated_at` müssen laut Rules exakt `request.time` sein -
 // dafür MUSS `FieldValue.serverTimestamp()` verwendet werden (ein simples
 // `new Date()` ist eine Client-Zeit und wird von den Rules zu Recht
 // abgelehnt), analog zu `messages.rules.test.mjs`.
 const serverTimestamp = () => firebase.firestore.FieldValue.serverTimestamp();
+const deleteField = () => firebase.firestore.FieldValue.delete();
 
 let testEnv;
 const now = () => new Date();
@@ -76,6 +78,14 @@ before(async () => {
     await db.doc('groups/mngroup1/movie_nights/bobs-night').set(
       validMovieNight({ created_by: 'bob' }),
     );
+
+    // Ein Filmabend mit bereits gesetztem reminder_sent_at - simuliert das
+    // Ergebnis der Scheduled Cloud Function `sendMovieNightReminders`, ohne
+    // sie hier auszuführen. Grundlage für die reminder_sent_at-Tests unten.
+    await db.doc('groups/mngroup1/movie_nights/reminded-night').set({
+      ...validMovieNight({ created_by: 'bob' }),
+      reminder_sent_at: now(),
+    });
   });
 });
 
@@ -263,6 +273,40 @@ describe('groups/{groupId}/movie_nights/{movieNightId}', () => {
         updated_at: new Date('2020-01-01'),
         scheduled_at: now(),
         platform_id: 8,
+      }),
+    );
+  });
+
+  it('lehnt es ab, reminder_sent_at beim Anlegen selbst zu setzen', async () => {
+    const db = testEnv.authenticatedContext('carol_member').firestore();
+    await assertFails(
+      db.collection('groups/mngroup1/movie_nights').add({
+        ...validMovieNight({ created_by: 'carol_member' }),
+        reminder_sent_at: now(),
+      }),
+    );
+  });
+
+  it('erlaubt es, einen Filmabend mit bereits gesetztem reminder_sent_at normal zu bearbeiten (löscht es dabei)', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(
+      db.doc('groups/mngroup1/movie_nights/reminded-night').update({
+        updated_at: serverTimestamp(),
+        scheduled_at: now(),
+        platform_id: 9,
+        reminder_sent_at: deleteField(),
+      }),
+    );
+  });
+
+  it('lehnt es ab, ein bereits gesetztes reminder_sent_at auf einen eigenen, erfundenen Zeitpunkt zu ändern', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('groups/mngroup1/movie_nights/reminded-night').update({
+        updated_at: serverTimestamp(),
+        scheduled_at: now(),
+        platform_id: 9,
+        reminder_sent_at: new Date('2020-01-01'),
       }),
     );
   });
