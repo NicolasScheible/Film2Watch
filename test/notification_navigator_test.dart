@@ -85,6 +85,15 @@ void main() {
       expect(find.byType(GroupDetailScreen), findsOneWidget);
     });
 
+    testWidgets('movie_poll navigiert zur Gruppe', (tester) async {
+      await pumpBase(tester);
+      navigateForNotification(
+        NotificationPayload(type: NotificationType.moviePoll, groupId: groupId),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(GroupDetailScreen), findsOneWidget);
+    });
+
     testWidgets('unknown navigiert nirgendwohin', (tester) async {
       await pumpBase(tester);
       navigateForNotification(const NotificationPayload(type: NotificationType.unknown));

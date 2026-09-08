@@ -41,6 +41,15 @@ void main() {
       expect(payload.groupId, 'g1');
     });
 
+    test('6f. movie_poll wird korrekt geparst', () {
+      final payload = NotificationPayload.fromData({
+        'type': 'movie_poll',
+        'group_id': 'g1',
+      });
+      expect(payload.type, NotificationType.moviePoll);
+      expect(payload.groupId, 'g1');
+    });
+
     test('10a. ungültiger Payload (fehlendes type-Feld) ergibt unknown statt Absturz', () {
       final payload = NotificationPayload.fromData(<String, dynamic>{});
       expect(payload.type, NotificationType.unknown);

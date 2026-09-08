@@ -4,26 +4,20 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Premium-Mehrfachauswahl beim Plattform-Filter (§15)**. Der Plattform-Filter
-(§10) erlaubte bisher nur eine Einzelauswahl inkl. „Alle" - das war explizit als MVP-Einschränkung
-dokumentiert, weil Mehrfachauswahl laut §15 ein Premium-Vorteil („erweiterte Filter") ist. Free-User
-wählen weiterhin genau eine Plattform (unverändertes Verhalten); bestätigte Premium-User
-(`isPremiumProvider`, wie beim Super-Swipe-Gating) dürfen jetzt mehrere Plattformen gleichzeitig
-wählen (ODER-verknüpft über TMDB `with_watch_providers`, analog zum Genre-Filter). Da `MovieFilter`
-rein clientseitig/session-lokal ist (kein Firestore-Feld, nichts wird geteilt oder dauerhaft
-gespeichert), ist diese UI-Beschränkung die einzige und ausreichende Durchsetzung - es gibt keine
-serverseitig zu schützende Ressource, anders als bei Super Swipe (dort bleibt die Firestore-Regel
-`isPremium()` die eigentliche Absicherung). Filmabend-/Terminplanung (§12), Profil-, Freundes-,
+Aktueller Schritt: **Filmabend-Abstimmung (§21)**. §21 nennt in der Master-Spezifikation
+ausschließlich den Begriff „Filmabend-Abstimmung" in einer Ausblick-Liste, ohne weitere Details zu
+Mechanik oder Feldern - alle konkreten Verhaltensregeln (Mehrfachauswahl pro Teilnehmer, wer
+erstellen/abstimmen darf, Deadline, automatische Auswertung, Gleichstand-Regel, automatisches
+Anlegen des Ergebnis-Filmabends) wurden **explizit mit dem Produktverantwortlichen abgestimmt**,
+da die Spezifikation dazu nichts vorgibt. Ergänzt die einfache §12-Terminplanung
+(`movie_nights`, weiterhin unverändert für einen einzelnen, abstimmungsfreien Terminvorschlag) um
+den dort bewusst zurückgestellten Abstimmungsfall - beide Features bleiben getrennt. Siehe
+„Filmabend-Abstimmung" unten für die vollständige Herleitung und Architektur. Premium-
+Mehrfachauswahl beim Plattform-Filter (§15), Filmabend-/Terminplanung (§12), Profil-, Freundes-,
 Profilbild-, Gruppen-, TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button,
 Watchlist-Eintrag entfernen, vollem Boost-Algorithmus inkl. Cast-Anti-Boost und Super-Swipe-UI),
 Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-Schritt aus den vorherigen Schritten
-unverändert. §12 der Master-Spezifikation selbst widerspricht sich in der Priorisierung (§19s
-MVP-Liste enthält den Punkt nicht, §21 nennt nur die deutlich komplexere „Filmabend-Abstimmung" als
-„später") - **mit dem Produktverantwortlichen abgestimmt**: umgesetzt wird ausschließlich die
-einfache §12-Variante (ein einzelner Terminvorschlag: Datum/Uhrzeit/Plattform + Reminder-Push,
-optional ein bereits gematchter Film), **keine** Abstimmung/Mehrfachauswahl/RSVP -
-„Filmabend-Abstimmung" (§21) bleibt weiterhin explizit zurückgestellt. Siehe
-„Filmabend-/Terminplanung" unten für die vollständige Herleitung.
+unverändert.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten):
 Boost-Bonus für Super Swipe (Master-Spezifikation nennt keinen Wert), **echte Premium-Aktivierung**
@@ -32,8 +26,8 @@ externe Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; n
 Datenmodell/Gating ist bereits fertig), sowie die übrigen Premium-Vorteile aus §15 (werbefrei,
 unbegrenzte Gruppen, Statistiken - die Master-Spezifikation nennt für „unbegrenzte Gruppen" kein
 konkretes Free-Limit und für „Statistiken" keinen konkreten Inhalt, beides bleibt daher eine offene
-Produktentscheidung), Filmabend-**Abstimmung** (§21: Doodle-artige Mehrfachoptionen-Abstimmung unter
-den Mitgliedern), RSVP/Zusagen, zeitgesteuerte Reminder, Werbung (AdMob - benötigt echte
+Produktentscheidung), RSVP/Zusagen (§21 nennt nur die Abstimmung selbst, kein separates
+Teilnahme-Zusagen-Konzept), zeitgesteuerte Reminder, Werbung (AdMob - benötigt echte
 Ad-Unit-IDs/App-Konfiguration, die in dieser Umgebung nicht existiert).
 
 ## Tech-Stack
@@ -585,8 +579,95 @@ trotzdem strikt auf den eigenen Swipe beschränkt.
   Benachrichtigungsereignis). Idempotent über das bestehende `claimNotification`-Muster (schützt vor
   doppeltem Versand bei „at-least-once"-Ausführung). Tippen auf die Notification öffnet die Gruppe
   (`NotificationType.movieNight`, identisches Ziel wie eine Match-Notification).
-- **Was bewusst nicht Teil dieses Schritts ist:** Filmabend-Abstimmung/Voting (§21), RSVP/Zusagen,
-  zeitgesteuerte Reminder, Kalender-Export, Watch Party.
+- **Was bewusst nicht Teil dieses Schritts ist:** RSVP/Zusagen, zeitgesteuerte Reminder,
+  Kalender-Export, Watch Party. Die komplexere Mehrfachoptionen-Abstimmung (§21) ist ein eigener,
+  später umgesetzter Schritt, siehe „Filmabend-Abstimmung (§21)" unten - sie erzeugt am Ende
+  ebenfalls ein `movie_nights`-Dokument über denselben Datenvertrag, dupliziert also keine eigene
+  Terminmodellierung.
+
+## Filmabend-Abstimmung (§21)
+
+- **Exakte Vorgabe in der Master-Spezifikation:** §21 (Ausblick, „nicht im MVP, kommt später") nennt
+  ausschließlich den Begriff „**Filmabend-Abstimmung**" in einer Aufzählung möglicher späterer
+  Features, ohne jegliche weitere Details zu Mechanik, Feldern oder Sonderfällen. Anders als bei §12
+  (siehe oben, dort gab es einen echten Widerspruch zwischen mehreren §-Abschnitten) ist hier kein
+  Widerspruch aufzulösen, sondern schlicht eine fast vollständig fehlende Spezifikation zu ergänzen.
+- **Mit dem Product Owner abgestimmte Ausgestaltung** (explizit nachgefragt, nichts erfunden):
+  - **Optionen/Auswahl:** eine Abstimmung enthält mehrere Terminvorschläge; jeder Teilnehmer darf
+    beliebig viele davon auswählen (Doodle-Prinzip), nicht nur genau einen.
+  - **Berechtigungen:** jedes Gruppenmitglied darf eine Abstimmung erstellen; jedes Gruppenmitglied
+    darf abstimmen (kein separates Einladungs-/Teilnahmekonzept).
+  - **Stimmänderung:** eine Stimme kann bis zur Deadline beliebig oft geändert werden - eine erneute
+    Abstimmung ersetzt die komplette bisherige Auswahl des Users vollständig, keine
+    Abstimmungshistorie, keine Mehrfachstimmen desselben Users für dieselbe Option.
+  - **Deadline/Auswertung:** eine Abstimmung hat eine feste, bei der Erstellung festgelegte Deadline.
+    Nach deren Ablauf ermittelt eine Scheduled Cloud Function automatisch den Gewinner - kein
+    manueller Abschluss durch den Ersteller.
+  - **Gleichstand:** gewinnt deterministisch der zeitlich früheste Terminvorschlag (`scheduled_at`) -
+    kein Zufall, kein "unentschieden"-Zustand, solange mindestens eine Stimme abgegeben wurde.
+  - **Ergebnis:** der Gewinner-Termin wird automatisch als bestehendes §12-`movie_nights`-Dokument
+    angelegt (derselbe Datenvertrag wie beim einfachen Terminvorschlag) - kein separates
+    Ergebnis-Datenmodell. Hat niemand abgestimmt, gibt es keinen Gewinner und keinen
+    `movie_nights`-Eintrag (kein erfundenes Ergebnis ohne echte Stimme).
+- **Architektur:** neue Collections `groups/{groupId}/movie_night_polls/{pollId}` (+ Unter-
+  Collections `options`/`votes`) nach demselben Muster wie `movie_nights`/`swipes`:
+  `MoviePollRepository` → `MoviePollService` (Mitgliedschaft, Deadline in der Zukunft, mindestens
+  zwei Optionen, optionale Filme müssen bestehende Gruppen-Matches sein - dieselbe Prüfung wie bei
+  `MovieNightService`) → `MoviePollActionController` (Double-Submit-Schutz, identisches Muster wie
+  `MovieNightActionController`) → UI. Die serverseitige Gewinner-Ermittlung
+  (`functions/moviePollEngine.js: resolveOnePoll/resolveDuePolls`) läuft als eigene Scheduled Cloud
+  Function (`resolveMoviePolls`, alle 5 Minuten, `functions/index.js`) mit Admin-Rechten, komplett
+  unabhängig von der Rules-Durchsetzung des Clients.
+- **Datenmodell:**
+  - `movie_night_polls/{pollId}`: `created_by`, `created_at` (serverseitig), `deadline` (Client-
+    Timestamp, muss beim Anlegen in der Zukunft liegen), `status` (`'open'`/`'closed'`),
+    `winning_option_id`/`result_movie_night_id`/`resolved_at` (alle drei ausschließlich
+    serverseitig gesetzt, nie Teil der Client-`create`-Map).
+  - `movie_night_polls/{pollId}/options/{optionId}`: dieselben Felder wie ein `movie_nights`-Termin
+    (`scheduled_at`, `platform_id`, optional `movie_id`) - bewusst kein neues Terminmodell.
+  - `movie_night_polls/{pollId}/votes/{voteId}`: Dokument-ID deterministisch `"{uid}_{optionId}"`
+    (analog zu `swipes/{uid}_{movieId}`) - verhindert Mehrfachstimmen derselben (User,Option)-
+    Kombination strukturell. Eine Stimmänderung läuft über Löschen der nicht mehr gewählten und
+    Anlegen der neu gewählten Stimmen (`MoviePollRepository.setMyVotes`, berechnet nur die echte
+    Differenz).
+- **Security:** `firestore.rules` erzwingt die Deadline **zeitbasiert** (`request.time <
+  deadline`), nicht nur über das `status`-Feld - ein Client kann also selbst in dem kurzen Fenster
+  zwischen Deadline-Ablauf und dem nächsten Lauf der Scheduled Cloud Function keine Stimme mehr
+  abgeben. Die Abstimmung selbst ist nach dem Anlegen für **jeden** Client (auch den Ersteller)
+  vollständig unveränderlich (`allow update, delete: if false`) - `winning_option_id`/
+  `result_movie_night_id`/`resolved_at` können also strukturell nie durch einen Client gesetzt oder
+  manipuliert werden, der Gewinner steht ausschließlich fest, wenn die Scheduled Cloud Function ihn
+  serverseitig bestimmt hat. Optionen dürfen ausschließlich vom Ersteller und ausschließlich vor der
+  Deadline hinzugefügt werden (kein nachträgliches Manipulieren der Auswahl). Stimmen sind für alle
+  Gruppenmitglieder lesbar (analog zu `swipes`), aber nur die eigene Stimme ist anlege-/löschbar.
+  Gegen einen frischen Firestore-Rules-Emulator validiert (siehe `movie_night_polls.rules.test.mjs`).
+- **Idempotenz der Auswertung:** `resolveOnePoll` liest Optionen/Stimmen, ermittelt den Gewinner und
+  schließt die Abstimmung + legt bei einem Gewinner den `movie_nights`-Eintrag an - alles innerhalb
+  einer einzigen Firestore-Transaktion mit `status=='open'`-Prüfung. Ein erneuter Lauf für eine
+  bereits geschlossene Abstimmung (z. B. weil die Scheduled Cloud Function für dieselbe Abstimmung
+  mehrfach greift) ändert nichts und erzeugt nie einen zweiten `movie_nights`-Eintrag.
+- **Push-Notifications:** `notifyMoviePollCreated.js` (identisches Muster zu
+  `notifyMovieNightCreated.js`, Ersteller bekommt keine eigene Notification) bei der Erstellung;
+  `notifyMoviePollResolved.js` (alle Mitglieder inkl. Ersteller, da die Auswertung eine
+  Server-Aktion ohne ausschließenden "Akteur" ist) bei der automatischen Auswertung - eigener,
+  von der Scheduled Cloud Function unabhängiger Firestore-Trigger (`onMoviePollResolved`), analog
+  zur bestehenden Trennung von Match-Erkennung/-Notification. Beide idempotent über das bestehende
+  `claimNotification`-Muster. Tippen auf die Notification öffnet die Gruppe
+  (`NotificationType.moviePoll`, identisches Ziel wie bei Match/Filmabend).
+- **UI:** neue „Abstimmungen"-Sektion in `GroupDetailScreen` (zwischen Filmabenden und
+  Mitgliederliste) mit „Neue Abstimmung"-Button und `MoviePollCard` pro Abstimmung.
+  `MoviePollFormScreen` erlaubt ausschließlich das Anlegen (kein Bearbeiten - Optionen sind laut
+  Rules unveränderlich): Deadline über `showDatePicker`/`showTimePicker`, mindestens zwei
+  Terminvorschläge mit „Terminvorschlag hinzufügen"/entfernen (der Entfernen-Button verschwindet
+  beim Minimum von zwei Optionen), pro Terminvorschlag dieselbe Plattform-/Match-Auswahl wie im
+  Filmabend-Formular. `MoviePollDetailScreen` zeigt jeden Terminvorschlag mit seiner aktuellen
+  Stimmenzahl live an; jedes Antippen sendet die vollständige, aktuelle Auswahl sofort an den Server
+  (kein separater „Abstimmen"-Button, keine lokale Zwischenauswahl, die von der echten, live
+  einsehbaren Stimme abweichen könnte) - nach der Deadline zeigt der Screen nur noch das Ergebnis
+  an.
+- **Was bewusst nicht Teil dieses Schritts ist:** Bearbeiten/vorzeitiges Schließen einer bestehenden
+  Abstimmung, Kommentare/Diskussion zu einzelnen Terminvorschlägen, ein konfigurierbares
+  Auswertungsintervall.
 
 ## Match-System
 
@@ -1010,19 +1091,24 @@ hinterlegt, sondern per `--dart-define` injiziert – siehe „TMDB-Integration"
    werden. Ohne deployte Regeln nutzt euer Projekt die Firebase-Standardregeln, die je nach
    Erstellungszeitpunkt des Buckets entweder alles sperren oder unsicher offen sein können – bitte
    nach dem Deployment einmal in der Console verifizieren.
-5. **Firestore-Index deployen** – `firestore.indexes.json` (Collection-Group-Index auf
-   `members.uid`, nötig für die „Meine Gruppen"-Liste) muss über `firebase deploy --only
-   firestore:indexes` veröffentlicht werden, oder Firestore bietet beim ersten Aufruf der Query in
-   der Produktion einen direkten Konsolen-Link zum Anlegen an.
+5. **Firestore-Index deployen** – `firestore.indexes.json` (Collection-Group-Indizes auf
+   `members.uid`, nötig für die „Meine Gruppen"-Liste, und auf `movie_night_polls.status`+
+   `.deadline`, nötig für die Scheduled Cloud Function `resolveMoviePolls`, §21) muss über
+   `firebase deploy --only firestore:indexes` veröffentlicht werden, oder Firestore bietet beim
+   ersten Aufruf der jeweiligen Query in der Produktion einen direkten Konsolen-Link zum Anlegen an.
 6. **TMDB API Read Access Token** – wird für alle echten TMDB-Requests benötigt (siehe
    „TMDB-Integration" oben). Ohne ihn zeigt die TMDB-Testseite den Hinweis „TMDB API Key wird
    benötigt.", es werden keine Fake-Daten angezeigt.
-7. **Cloud Functions deployen** – `functions/` (serverseitige Match-Erkennung + Push-Notification-
-   Versand) muss über `firebase deploy --only functions` veröffentlicht werden. Das Firebase-
-   Projekt muss dafür auf den **Blaze-Tarif (Pay-as-you-go)** umgestellt sein – Cloud Functions
-   laufen nicht auf dem kostenlosen Spark-Tarif. Ohne deployte Functions entstehen echte Swipes/
-   Nachrichten/Anfragen weiterhin normal, aber es werden **keine** Match-Dokumente und **keine**
-   Push-Notifications erzeugt (kein Fake-Fallback).
+7. **Cloud Functions deployen** – `functions/` (serverseitige Match-Erkennung, Push-Notification-
+   Versand, Filmabend-Abstimmungs-Auswertung §21) muss über `firebase deploy --only functions`
+   veröffentlicht werden. Das Firebase-Projekt muss dafür auf den **Blaze-Tarif (Pay-as-you-go)**
+   umgestellt sein – Cloud Functions laufen nicht auf dem kostenlosen Spark-Tarif. Die neue
+   Scheduled Function `resolveMoviePolls` (§21) benötigt zusätzlich die **Cloud Scheduler API**
+   (wird von Firebase beim ersten Deployment einer Scheduled Function automatisch aktiviert bzw.
+   die Konsole bietet einen direkten Aktivierungs-Link an). Ohne deployte Functions entstehen echte
+   Swipes/Nachrichten/Anfragen/Abstimmungen weiterhin normal, aber es werden **keine**
+   Match-Dokumente, **keine** Push-Notifications und **keine** automatische Abstimmungsauswertung
+   erzeugt (kein Fake-Fallback).
 8. **APNs für iOS** (Schritt 9, siehe „Push-Notifications" → „iOS / APNs" oben für den vollen
    Status): „Push Notifications"-Capability im Apple Developer Portal für die App-ID `film2watch`
    aktivieren + ein passendes Provisioning-Profile ziehen, sowie einen APNs-Auth-Key erzeugen und

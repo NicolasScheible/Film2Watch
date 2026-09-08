@@ -1,7 +1,7 @@
 /// Typ einer Push-Notification, abgeleitet aus dem `data`-Feld der
 /// FCM-Nachricht (nie aus dem `notification`-Block, der nur für die reine
 /// Anzeige gedacht ist).
-enum NotificationType { friendRequest, groupInvitation, match, chatMessage, movieNight, unknown }
+enum NotificationType { friendRequest, groupInvitation, match, chatMessage, movieNight, moviePoll, unknown }
 
 /// Getypte, geparste Darstellung des `data`-Payloads einer FCM-Nachricht.
 /// FCM liefert `data` immer als `Map<String, String>` - dieser Parser ist
@@ -28,6 +28,8 @@ class NotificationPayload {
         return _withGroupId(data, NotificationType.chatMessage);
       case 'movie_night':
         return _withGroupId(data, NotificationType.movieNight);
+      case 'movie_poll':
+        return _withGroupId(data, NotificationType.moviePoll);
       default:
         return const NotificationPayload(type: NotificationType.unknown);
     }

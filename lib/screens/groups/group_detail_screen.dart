@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../components/friends/user_avatar.dart';
 import '../../components/movies/match_card.dart';
 import '../../components/movies/movie_night_card.dart';
+import '../../components/movies/movie_poll_card.dart';
 import '../../components/movies/watchlist_card.dart';
 import '../../models/group_member.dart';
 import '../../providers/auth_provider.dart';
@@ -12,6 +13,7 @@ import '../../providers/group_action_controller.dart';
 import '../../providers/group_provider.dart';
 import '../../providers/match_provider.dart';
 import '../../providers/movie_night_provider.dart';
+import '../../providers/movie_poll_provider.dart';
 import '../../providers/swipe_provider.dart';
 import '../../providers/watchlist_remove_controller.dart';
 import '../../theme/app_theme.dart';
@@ -22,6 +24,8 @@ import 'group_chat_screen.dart';
 import 'group_swipe_screen.dart';
 import 'invite_friend_screen.dart';
 import 'movie_night_form_screen.dart';
+import 'movie_poll_detail_screen.dart';
+import 'movie_poll_form_screen.dart';
 
 /// Detailseite einer Gruppe: Bild, Name, Mitglieder, rollenabhängige
 /// Aktionen, der Einstieg in die Gruppen-Swipe-Session, die echte
@@ -133,6 +137,22 @@ class GroupDetailScreen extends ConsumerWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  Text('Abstimmungen', style: Theme.of(context).textTheme.titleMedium),
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => MoviePollFormScreen(groupId: groupId)),
+                    ),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Neue Abstimmung'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _MoviePollsSection(groupId: groupId),
+              const SizedBox(height: 32),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
                   Text('Mitglieder', style: Theme.of(context).textTheme.titleMedium),
                   if (isAdmin)
                     TextButton.icon(
@@ -220,6 +240,53 @@ class _MovieNightsSection extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accent)),
       error: (error, _) => const Text(
         'Filmabende konnten nicht geladen werden.',
+        style: TextStyle(color: AppColors.textSecondary),
+      ),
+    );
+  }
+}
+
+/// Filmabend-Abstimmungen der Gruppe (§21: "Filmabend-Abstimmung"). Jedes
+/// Mitglied darf antippen - Abstimmen selbst ist für jedes Mitglied erlaubt,
+/// die eigentliche Durchsetzung (Deadline, wer abstimmen darf) bleibt
+/// unabhängig davon serverseitig (`MoviePollService`/Firestore Rules).
+class _MoviePollsSection extends ConsumerWidget {
+  const _MoviePollsSection({required this.groupId});
+
+  final String groupId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pollsAsync = ref.watch(groupMoviePollsProvider(groupId));
+
+    return pollsAsync.when(
+      data: (polls) {
+        if (polls.isEmpty) {
+          return const Text(
+            'Noch keine Abstimmung gestartet.',
+            style: TextStyle(color: AppColors.textSecondary),
+          );
+        }
+        return Column(
+          children: [
+            for (final poll in polls) ...[
+              MoviePollCard(
+                groupId: groupId,
+                poll: poll,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => MoviePollDetailScreen(groupId: groupId, pollId: poll.id),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ],
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator(color: AppColors.accent)),
+      error: (error, _) => const Text(
+        'Abstimmungen konnten nicht geladen werden.',
         style: TextStyle(color: AppColors.textSecondary),
       ),
     );

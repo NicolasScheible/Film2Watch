@@ -40,6 +40,11 @@ void navigateForNotification(NotificationPayload payload) {
       if (groupId != null) {
         navigator.push(MaterialPageRoute(builder: (_) => GroupDetailScreen(groupId: groupId)));
       }
+    case NotificationType.moviePoll:
+      final groupId = payload.groupId;
+      if (groupId != null) {
+        navigator.push(MaterialPageRoute(builder: (_) => GroupDetailScreen(groupId: groupId)));
+      }
     case NotificationType.unknown:
       break;
   }
