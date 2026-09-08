@@ -10,6 +10,9 @@ const { notifyMatch } = require('./notifyMatch');
 const { notifyChatMessage } = require('./notifyChatMessage');
 const { notifyMovieNightCreated } = require('./notifyMovieNightCreated');
 const { postMatchChatMessage } = require('./postMatchChatMessage');
+const { notifyMoviePollCreated } = require('./notifyMoviePollCreated');
+const { notifyMoviePollResolved } = require('./notifyMoviePollResolved');
+const { resolveDuePolls } = require('./moviePollEngine');
 
 admin.initializeApp();
 
@@ -225,3 +228,81 @@ exports.onMovieNightCreated = functions.firestore
     }
     return null;
   });
+
+/**
+ * Push-Notification bei der Erstellung einer Filmabend-Abstimmung (§21).
+ * Analog zu `onMovieNightCreated` - nur die Erstellung ist ein
+ * Notification-Ereignis.
+ */
+exports.onMoviePollCreated = functions.firestore
+  .document('groups/{groupId}/movie_night_polls/{pollId}')
+  .onCreate(async (snapshot, context) => {
+    try {
+      const data = snapshot.data();
+      await notifyMoviePollCreated({
+        firestore: admin.firestore(),
+        messaging: admin.messaging(),
+        groupId: context.params.groupId,
+        pollRef: snapshot.ref,
+        createdBy: data.created_by,
+      });
+    } catch (error) {
+      functions.logger.error('Abstimmungs-Notification fehlgeschlagen', {
+        groupId: context.params.groupId,
+        pollId: context.params.pollId,
+        error: error.message,
+      });
+    }
+    return null;
+  });
+
+/**
+ * Push-Notification, sobald die Scheduled Cloud Function `resolveMoviePolls`
+ * unten eine Abstimmung geschlossen hat (§21) - eigener, unabhängiger
+ * Trigger auf denselben Schreibvorgang (analog zur Trennung von
+ * Match-Erkennung/-Notification in `onSwipeWritten`/`onMatchCreated`), damit
+ * `moviePollEngine.js` selbst frei von Notification-/Messaging-Details
+ * bleibt.
+ */
+exports.onMoviePollResolved = functions.firestore
+  .document('groups/{groupId}/movie_night_polls/{pollId}')
+  .onWrite(async (change, context) => {
+    if (!change.before.exists || !change.after.exists) return null;
+    const before = change.before.data();
+    const after = change.after.data();
+    if (before.status !== 'open' || after.status !== 'closed') return null;
+
+    try {
+      await notifyMoviePollResolved({
+        firestore: admin.firestore(),
+        messaging: admin.messaging(),
+        groupId: context.params.groupId,
+        pollRef: change.after.ref,
+        winningOptionId: after.winning_option_id || null,
+      });
+    } catch (error) {
+      functions.logger.error('Abstimmungsergebnis-Notification fehlgeschlagen', {
+        groupId: context.params.groupId,
+        pollId: context.params.pollId,
+        error: error.message,
+      });
+    }
+    return null;
+  });
+
+/**
+ * Ermittelt periodisch alle Filmabend-Abstimmungen (§21), deren Deadline
+ * erreicht ist, und wertet sie serverseitig aus (Gewinner + automatisches
+ * Anlegen des §12-`movie_nights`-Eintrags, siehe `moviePollEngine.js`).
+ * 5-Minuten-Takt: nah genug an "sofort nach Deadline" für den Anwendungsfall
+ * (kein Echtzeit-Countdown-Feature), ohne bei sehr vielen gleichzeitig
+ * fälligen Abstimmungen unnötig oft zu laufen.
+ */
+exports.resolveMoviePolls = functions.pubsub.schedule('every 5 minutes').onRun(async () => {
+  try {
+    await resolveDuePolls({ firestore: admin.firestore(), now: new Date() });
+  } catch (error) {
+    functions.logger.error('Abstimmungs-Auswertung fehlgeschlagen', { error: error.message });
+  }
+  return null;
+});

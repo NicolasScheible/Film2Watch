@@ -8,6 +8,8 @@ import { notifyMatch } from '../notifyMatch.js';
 import { notifyChatMessage } from '../notifyChatMessage.js';
 import { notifyMovieNightCreated } from '../notifyMovieNightCreated.js';
 import { postMatchChatMessage } from '../postMatchChatMessage.js';
+import { notifyMoviePollCreated } from '../notifyMoviePollCreated.js';
+import { notifyMoviePollResolved } from '../notifyMoviePollResolved.js';
 
 // Testet die reine Notification-Logik (Empfänger-Ermittlung, Ausschluss des
 // Absenders, Duplikat-Schutz, Cleanup ungültiger Tokens) gegen den echten
@@ -325,6 +327,118 @@ describe('Push-Notification-Logik', () => {
       await notifyMovieNightCreated({ firestore: db, messaging, groupId, movieNightRef, createdBy: alice });
 
       assert.deepEqual(recipientTokens(messaging), [`${bob}-tok`]);
+    });
+  });
+
+  describe('notifyMoviePollCreated', () => {
+    let groupId, alice, bob, carol;
+
+    beforeEach(async () => {
+      const suffix = Date.now();
+      groupId = `pollgroup-${suffix}`;
+      alice = `alice-${suffix}`;
+      bob = `bob-${suffix}`;
+      carol = `carol-${suffix}`;
+      await db.doc(`groups/${groupId}`).set({ id: groupId, name: 'Filmabend', created_by: alice, created_at: now(), updated_at: now() });
+      await db.doc(`groups/${groupId}/members/${alice}`).set({ uid: alice, role: 'admin', joined_at: now() });
+      await db.doc(`groups/${groupId}/members/${bob}`).set({ uid: bob, role: 'member', joined_at: now() });
+      await db.doc(`public_profiles/${alice}`).set({ uid: alice, name: 'Alice', friend_code: 'X', profile_picture: null });
+      await addDevice(alice, `${alice}-tok`);
+      await addDevice(bob, `${bob}-tok`);
+      // carol ist kein Mitglied dieser Gruppe.
+      await addDevice(carol, `${carol}-tok`);
+    });
+
+    it('andere Gruppenmitglieder bekommen eine Notification', async () => {
+      const pollRef = db.doc(`groups/${groupId}/movie_night_polls/poll1`);
+      await pollRef.set({ created_by: alice, created_at: now(), deadline: now(), status: 'open' });
+      const messaging = new FakeMessaging();
+
+      await notifyMoviePollCreated({ firestore: db, messaging, groupId, pollRef, createdBy: alice });
+
+      assert.deepEqual(recipientTokens(messaging), [`${bob}-tok`]);
+    });
+
+    it('der Ersteller bekommt keine eigene Notification', async () => {
+      const pollRef = db.doc(`groups/${groupId}/movie_night_polls/poll2`);
+      await pollRef.set({ created_by: alice, created_at: now(), deadline: now(), status: 'open' });
+      const messaging = new FakeMessaging();
+
+      await notifyMoviePollCreated({ firestore: db, messaging, groupId, pollRef, createdBy: alice });
+
+      assert.ok(!recipientTokens(messaging).includes(`${alice}-tok`));
+    });
+
+    it('Nicht-Mitglieder bekommen nichts', async () => {
+      const pollRef = db.doc(`groups/${groupId}/movie_night_polls/poll3`);
+      await pollRef.set({ created_by: alice, created_at: now(), deadline: now(), status: 'open' });
+      const messaging = new FakeMessaging();
+
+      await notifyMoviePollCreated({ firestore: db, messaging, groupId, pollRef, createdBy: alice });
+
+      assert.ok(!recipientTokens(messaging).includes(`${carol}-tok`));
+    });
+
+    it('ein zweiter Aufruf für dieselbe Abstimmung (at-least-once-Zustellung) sendet nicht doppelt (Idempotenz)', async () => {
+      const pollRef = db.doc(`groups/${groupId}/movie_night_polls/poll4`);
+      await pollRef.set({ created_by: alice, created_at: now(), deadline: now(), status: 'open' });
+      const messaging = new FakeMessaging();
+
+      await notifyMoviePollCreated({ firestore: db, messaging, groupId, pollRef, createdBy: alice });
+      await notifyMoviePollCreated({ firestore: db, messaging, groupId, pollRef, createdBy: alice });
+
+      assert.deepEqual(recipientTokens(messaging), [`${bob}-tok`]);
+    });
+  });
+
+  describe('notifyMoviePollResolved', () => {
+    let groupId, alice, bob;
+
+    beforeEach(async () => {
+      const suffix = Date.now();
+      groupId = `pollresolved-${suffix}`;
+      alice = `alice-${suffix}`;
+      bob = `bob-${suffix}`;
+      await db.doc(`groups/${groupId}`).set({ id: groupId, name: 'Filmabend', created_by: alice, created_at: now(), updated_at: now() });
+      await db.doc(`groups/${groupId}/members/${alice}`).set({ uid: alice, role: 'admin', joined_at: now() });
+      await db.doc(`groups/${groupId}/members/${bob}`).set({ uid: bob, role: 'member', joined_at: now() });
+      await addDevice(alice, `${alice}-tok`);
+      await addDevice(bob, `${bob}-tok`);
+    });
+
+    it('alle Mitglieder inkl. des Erstellers bekommen eine Notification, wenn es einen Gewinner gibt', async () => {
+      const pollRef = db.doc(`groups/${groupId}/movie_night_polls/poll1`);
+      await pollRef.set({ created_by: alice, created_at: now(), deadline: now(), status: 'closed', winning_option_id: 'opt1' });
+      await pollRef.collection('options').doc('opt1').set({ scheduled_at: now(), platform_id: 8 });
+      const messaging = new FakeMessaging();
+
+      await notifyMoviePollResolved({ firestore: db, messaging, groupId, pollRef, winningOptionId: 'opt1' });
+
+      assert.deepEqual(recipientTokens(messaging).sort(), [`${alice}-tok`, `${bob}-tok`].sort());
+      assert.match(messaging.sentMessages[0].notification.body, /entschieden/);
+    });
+
+    it('ohne Gewinner (niemand hat abgestimmt) wird das trotzdem ehrlich kommuniziert', async () => {
+      const pollRef = db.doc(`groups/${groupId}/movie_night_polls/poll2`);
+      await pollRef.set({ created_by: alice, created_at: now(), deadline: now(), status: 'closed', winning_option_id: null });
+      const messaging = new FakeMessaging();
+
+      await notifyMoviePollResolved({ firestore: db, messaging, groupId, pollRef, winningOptionId: null });
+
+      assert.equal(messaging.sentMessages.length, 1);
+      assert.match(messaging.sentMessages[0].notification.body, /niemand/);
+    });
+
+    it('ein zweiter Aufruf für dieselbe Abstimmung sendet nicht doppelt (Idempotenz)', async () => {
+      const pollRef = db.doc(`groups/${groupId}/movie_night_polls/poll3`);
+      await pollRef.set({ created_by: alice, created_at: now(), deadline: now(), status: 'closed', winning_option_id: 'opt1' });
+      await pollRef.collection('options').doc('opt1').set({ scheduled_at: now(), platform_id: 8 });
+      const messaging = new FakeMessaging();
+
+      await notifyMoviePollResolved({ firestore: db, messaging, groupId, pollRef, winningOptionId: 'opt1' });
+      await notifyMoviePollResolved({ firestore: db, messaging, groupId, pollRef, winningOptionId: 'opt1' });
+
+      assert.equal(messaging.sentMessages.length, 1);
     });
   });
 

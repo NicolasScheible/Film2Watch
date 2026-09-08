@@ -64,8 +64,16 @@ async function waitForMatch(groupId, movieId, { timeoutMs = 10000, intervalMs = 
   return matchRef(groupId, movieId).get();
 }
 
-/** Wartet eine feste Zeit und verifiziert dann, dass (noch) kein Match existiert. */
-async function assertNoMatchAfterSettling(groupId, movieId, waitMs = 3000) {
+/**
+ * Wartet eine feste Zeit und verifiziert dann, dass (noch) kein Match
+ * existiert. Der Standardwert ist bewusst großzügig bemessen: je mehr
+ * Cloud Functions im selben Codebase registriert sind (Trigger-Dispatch im
+ * Emulator läuft über alle Functions gemeinsam), desto länger kann die
+ * Verarbeitung eines einzelnen Swipe-Writes dauern - ein zu knapper Wert
+ * würde hier fälschlich einen noch nicht verarbeiteten Zustand als "korrekt
+ * kein Match" werten.
+ */
+async function assertNoMatchAfterSettling(groupId, movieId, waitMs = 5000) {
   await new Promise((resolve) => setTimeout(resolve, waitMs));
   const snap = await matchRef(groupId, movieId).get();
   assert.equal(snap.exists, false, `Unerwartetes Match-Dokument für Film ${movieId} in ${groupId}`);
@@ -151,7 +159,7 @@ describe('onSwipeWritten -> Match-Erkennung (echter Functions-Emulator)', () => 
     await createGroup('g8', ['alice', 'bob']);
     await setSwipe('g8', 'bob', 608, 'dislike');
     await setSwipe('g8', 'alice', 608, 'like');
-    await assertNoMatchAfterSettling('g8', 608, 1500);
+    await assertNoMatchAfterSettling('g8', 608);
 
     await setSwipe('g8', 'bob', 608, 'like');
     const snap = await waitForMatch('g8', 608);
