@@ -76,6 +76,24 @@ class GroupRepository {
     });
   }
 
+  /// Anzahl der Gruppen, in denen [uid] aktuell Mitglied ist (§15:
+  /// Free-Gruppen-Limit) - live per Aggregations-Query auf dieselbe
+  /// Collection-Group wie [watchMyGroups], daher ohne Verzögerung exakt (im
+  /// Gegensatz zum serverseitig für die Firestore Rules gepflegten,
+  /// asynchronen Zähler `group_membership_counts/{uid}`). Nur für eine
+  /// clientseitige Vorab-Prüfung mit sofortigem, verständlichem
+  /// Fehlertext gedacht - die eigentliche, sicherheitsrelevante Durchsetzung
+  /// bleibt unabhängig davon immer serverseitig (Firestore Rules
+  /// `groupMembershipCount()`).
+  Future<int> myGroupCount(String uid) async {
+    final result = await _firestore
+        .collectionGroup('members')
+        .where('uid', isEqualTo: uid)
+        .count()
+        .get();
+    return result.count ?? 0;
+  }
+
   Future<void> updateGroupName(String groupId, String name) {
     return _groups.doc(groupId).update({
       'name': name,

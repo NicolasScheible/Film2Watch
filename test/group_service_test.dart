@@ -5,6 +5,7 @@ import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:film2watch/models/group_member.dart';
 import 'package:film2watch/repositories/friend_repository.dart';
 import 'package:film2watch/repositories/group_repository.dart';
+import 'package:film2watch/repositories/premium_repository.dart';
 import 'package:film2watch/repositories/user_repository.dart';
 import 'package:film2watch/services/group_service.dart';
 import 'package:film2watch/services/storage_service.dart';
@@ -17,6 +18,7 @@ void main() {
   late UserRepository userRepository;
   late FriendRepository friendRepository;
   late GroupRepository groupRepository;
+  late PremiumRepository premiumRepository;
   late GroupService groupService;
   late File imageFile;
 
@@ -25,10 +27,12 @@ void main() {
     userRepository = UserRepository(firestore);
     friendRepository = FriendRepository(firestore);
     groupRepository = GroupRepository(firestore);
+    premiumRepository = PremiumRepository(firestore);
     groupService = GroupService(
       groupRepository,
       friendRepository,
       StorageService(MockFirebaseStorage()),
+      premiumRepository,
     );
 
     for (final uid in ['alice', 'bob', 'carol']) {
@@ -227,5 +231,95 @@ void main() {
       () => groupService.uploadGroupImage(groupId: group.id, callerUid: 'bob', file: imageFile),
       throwsA(isA<GroupActionException>()),
     );
+  });
+
+  group('Free-Gruppen-Limit (§15)', () {
+    test('ein Free-User kann genau 3 Gruppen anlegen, die 4. wird abgelehnt', () async {
+      await groupService.createGroup(name: 'Gruppe 1', creatorUid: 'alice');
+      await groupService.createGroup(name: 'Gruppe 2', creatorUid: 'alice');
+      await groupService.createGroup(name: 'Gruppe 3', creatorUid: 'alice');
+      expect(await groupRepository.myGroupCount('alice'), 3);
+
+      expect(
+        () => groupService.createGroup(name: 'Gruppe 4', creatorUid: 'alice'),
+        throwsA(isA<GroupActionException>()),
+      );
+      // Die abgelehnte 4. Gruppe darf nicht als verwaiste Gruppe ohne
+      // erfolgreiche Mitgliedschaft zurückbleiben - der Limit-Check greift
+      // schon vor dem eigentlichen Anlegen, es entsteht also gar kein
+      // Gruppendokument.
+      expect(await groupRepository.myGroupCount('alice'), 3);
+    });
+
+    test('ein Free-User kann das Limit nicht durch Annehmen einer Einladung umgehen', () async {
+      // alice ist hier bewusst Premium: sie soll selbst 4 Gruppen anlegen
+      // können, um bob (den eigentlichen Free-User unter Test) in alle 4
+      // einladen zu können - ihr eigener Premium-Status ist für diesen Test
+      // irrelevant, nur bobs Free-Limit wird geprüft.
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': true});
+      final group1 = await groupService.createGroup(name: 'Gruppe 1', creatorUid: 'alice');
+      final group2 = await groupService.createGroup(name: 'Gruppe 2', creatorUid: 'alice');
+      final group3 = await groupService.createGroup(name: 'Gruppe 3', creatorUid: 'alice');
+      final group4 = await groupService.createGroup(name: 'Gruppe 4', creatorUid: 'alice');
+
+      for (final group in [group1, group2, group3]) {
+        await groupService.inviteFriend(groupId: group.id, inviterUid: 'alice', inviteeUid: 'bob');
+        await groupService.acceptInvitation(groupId: group.id, inviteeUid: 'bob');
+      }
+      expect(await groupRepository.myGroupCount('bob'), 3);
+
+      await groupService.inviteFriend(groupId: group4.id, inviterUid: 'alice', inviteeUid: 'bob');
+      expect(
+        () => groupService.acceptInvitation(groupId: group4.id, inviteeUid: 'bob'),
+        throwsA(isA<GroupActionException>()),
+      );
+      // Die Einladung bleibt bestehen (Ablehnung passiert vor dem
+      // eigentlichen Annehmen) - bob könnte sie annehmen, sobald er Platz
+      // hat (z. B. nach Verlassen einer anderen Gruppe) oder Premium wird.
+      expect(await groupRepository.invitationExists(group4.id, 'bob'), isTrue);
+      expect(await groupRepository.getMember(group4.id, 'bob'), isNull);
+    });
+
+    test('ein Premium-User kann mehr als 3 Gruppen anlegen', () async {
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': true});
+
+      await groupService.createGroup(name: 'Gruppe 1', creatorUid: 'alice');
+      await groupService.createGroup(name: 'Gruppe 2', creatorUid: 'alice');
+      await groupService.createGroup(name: 'Gruppe 3', creatorUid: 'alice');
+      await groupService.createGroup(name: 'Gruppe 4', creatorUid: 'alice');
+
+      expect(await groupRepository.myGroupCount('alice'), 4);
+    });
+
+    test('ein Premium-User kann trotz bereits 3 Gruppen einer weiteren Einladung folgen', () async {
+      // alice ist hier ebenfalls Premium, aus demselben Grund wie im
+      // vorherigen Test - unter Test steht ausschließlich bobs
+      // Premium-Bypass.
+      await firestore.collection('premium_status').doc('alice').set({'is_premium': true});
+      final group1 = await groupService.createGroup(name: 'Gruppe 1', creatorUid: 'alice');
+      final group2 = await groupService.createGroup(name: 'Gruppe 2', creatorUid: 'alice');
+      final group3 = await groupService.createGroup(name: 'Gruppe 3', creatorUid: 'alice');
+      final group4 = await groupService.createGroup(name: 'Gruppe 4', creatorUid: 'alice');
+      await firestore.collection('premium_status').doc('bob').set({'is_premium': true});
+
+      for (final group in [group1, group2, group3, group4]) {
+        await groupService.inviteFriend(groupId: group.id, inviterUid: 'alice', inviteeUid: 'bob');
+        await groupService.acceptInvitation(groupId: group.id, inviteeUid: 'bob');
+      }
+
+      expect(await groupRepository.myGroupCount('bob'), 4);
+    });
+
+    test('nach Verlassen einer Gruppe kann ein Free-User wieder eine neue anlegen', () async {
+      final group1 = await groupService.createGroup(name: 'Gruppe 1', creatorUid: 'alice');
+      await groupService.createGroup(name: 'Gruppe 2', creatorUid: 'alice');
+      await groupService.createGroup(name: 'Gruppe 3', creatorUid: 'alice');
+
+      await groupService.leaveGroup(groupId: group1.id, uid: 'alice');
+      expect(await groupRepository.myGroupCount('alice'), 2);
+
+      final group4 = await groupService.createGroup(name: 'Gruppe 4', creatorUid: 'alice');
+      expect(await groupRepository.getGroup(group4.id), isNotNull);
+    });
   });
 }

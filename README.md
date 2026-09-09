@@ -4,16 +4,15 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Zeitgesteuerter Filmabend-Reminder (§12/§21)**. §12 nennt nur "Reminder-Push"
-ohne Zeitangabe - **mit dem Produktverantwortlichen abgestimmt**: zusätzlich zum bereits
-bestehenden Sofort-Push bei der Erstellung (`notifyMovieNightCreated.js`, unverändert) versendet
-eine neue Scheduled Cloud Function (`sendMovieNightReminders`, stündlicher Takt) 1 Tag vor dem
-Termin einen weiteren Push an alle Mitglieder. Siehe „Filmabend-/Terminplanung (§12)" unten für die
-vollständige Herleitung. Boost-Bonus für Super Swipe (§6/§15), Filmabend-Abstimmung (§21),
-Premium-Mehrfachauswahl beim Plattform-Filter (§15), Profil-, Freundes-, Profilbild-, Gruppen-,
-TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button, Watchlist-Eintrag entfernen,
-Cast-Anti-Boost und Super-Swipe-UI), Match-, Chat-, Push-, Onboarding- und globaler Swipe-Tab-
-Schritt aus den vorherigen Schritten unverändert.
+Aktueller Schritt: **Gruppen-Limit für Free-User (§15)**. §15 nennt für Premium „Unbegrenzte
+Gruppen" ohne die konkrete Free-Grenze zu beziffern - **mit dem Produktverantwortlichen
+abgestimmt**: Free-User dürfen maximal 3 Gruppen gleichzeitig haben (Anlegen UND
+Einladung-Annehmen zählen gleichermaßen), Premium-User unbegrenzt. Siehe „Gruppen" unten für die
+vollständige Herleitung. Zeitgesteuerter Filmabend-Reminder (§12/§21), Boost-Bonus für Super Swipe
+(§6/§15), Filmabend-Abstimmung (§21), Premium-Mehrfachauswahl beim Plattform-Filter (§15), Profil-,
+Freundes-, Profilbild-, TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button,
+Watchlist-Eintrag entfernen, Cast-Anti-Boost und Super-Swipe-UI), Match-, Chat-, Push-, Onboarding-
+und globaler Swipe-Tab-Schritt aus den vorherigen Schritten unverändert.
 
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten - für die mit „bereits
 entschieden" markierten Punkte liegt die Produktentscheidung bereits vor, nur die Umsetzung selbst
@@ -21,8 +20,6 @@ folgt noch als eigener Schritt):
 - **Echte Premium-Aktivierung** (RevenueCat/App-Store-/Play-Store-Abo) - benötigt externe
   Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; nur das Datenmodell/Gating
   ist bereits fertig.
-- **Gruppen-Limit für Free-User** (§15 „Unbegrenzte Gruppen") - **bereits entschieden:** 3 Gruppen
-  für Free-User, unbegrenzt für Premium.
 - **Statistiken** (§15 „Detaillierte Statistiken") - **bereits entschieden:** einfache Kennzahlen
   aus bereits vorhandenen Daten (Anzahl Swipes/Matches/Filmabende, Lieblingsgenre aus
   `user_preferences`) - keine neue Tracking-Infrastruktur.
@@ -154,6 +151,47 @@ Collection – ohne dafür das private Profil öffnen zu müssen.
 | `groups/{groupId}` | Gruppen-Metadaten (`name, photo_url, created_by, created_at, updated_at`) | nur Mitglieder lesen, nur Admin ändert/löscht |
 | `groups/{groupId}/members/{uid}` | Mitgliedschaft + Rolle (`admin`\|`member`) | Doc-ID = uid, verhindert doppelte Mitgliedschaft |
 | `group_invitations/{groupId}_{inviteeUid}` | Offene Gruppeneinladung | nur Admin des Gruppe darf einladen, nur an echte Freunde |
+| `group_membership_counts/{uid}` | §15-Gruppen-Limit: Anzahl der Gruppen, in denen `uid` Mitglied ist (`count`) | lesbar nur für den eigenen User; schreibbar für niemanden clientseitig – ausschließlich die Cloud Function `functions/groupMembershipCount.js` (Admin-SDK) schreibt |
+
+**Gruppen-Limit für Free-User (§15):** §15 nennt für Premium „Unbegrenzte Gruppen", ohne die
+Free-Grenze zu beziffern – **mit dem Produktverantwortlichen abgestimmt**: Free-User dürfen
+maximal 3 Gruppen gleichzeitig haben, Premium-User unbegrenzt. Das Limit gilt für **beide**
+Beitrittswege gleich (eine neue Gruppe anlegen und eine Einladung annehmen zählen beide als „eine
+weitere Gruppe").
+
+Firestore Security Rules können eine unbegrenzt lange Collection-Group nicht selbst zählen (keine
+Aggregations-Queries in Rules, nur `get`/`exists` auf einzelne Dokumentpfade) – deshalb pflegt die
+Cloud Function `onGroupMemberWritten` (`functions/index.js`, Trigger auf
+`groups/{groupId}/members/{memberUid}`) einen dedizierten Zähler `group_membership_counts/{uid}`
+(via `functions/groupMembershipCount.js`, atomar über `FieldValue.increment()`), analog zum
+bestehenden Muster von `premium_status`/`user_preferences`. Die Firestore Rule `groupMembershipCount()`
+liest diesen Zähler beim Anlegen einer neuen Mitgliedschaft (`groups/{groupId}/members/{memberUid}`
+`create`, sowohl beim Selbst-Eintragen als Admin einer neu erstellten Gruppe als auch beim Annehmen
+einer Einladung als `member`) und lehnt ab, wenn ein Free-User bereits 3 Gruppen hat
+(`isPremium(uid) || groupMembershipCount(uid) < 3`). Der Zähler selbst ist wie `premium_status`
+`allow write: if false` – ein Client kann ihn nicht künstlich niedrig halten, um das Limit zu
+umgehen.
+
+`GroupService.createGroup`/`GroupService.acceptInvitation` prüfen zusätzlich clientseitig vorab
+über eine **live**, exakte Aggregations-Query (`GroupRepository.myGroupCount`, `collectionGroup
+('members').where('uid', ...).count()`) und werfen bei Überschreitung eine verständliche
+`GroupActionException` – rein für eine sofortige, korrekte Fehlermeldung ohne auf den
+asynchronen Server-Zähler zu warten. Die tatsächliche, sicherheitsrelevante Durchsetzung bleibt
+unabhängig davon immer serverseitig über die Firestore Rule (niemals nur clientseitig geprüft,
+analog zu `SwipeService.superSwipeMovie`/Super Swipe).
+
+**Race Conditions bei paralleler Gruppenerstellung:** Da `onGroupMemberWritten` asynchron NACH dem
+eigentlichen Schreibvorgang läuft, gibt es ein eng begrenztes Zeitfenster, in dem mehrere nahezu
+gleichzeitige Beitritte (bevor der Trigger für die vorherigen durchgelaufen ist) den
+serverseitigen Zähler kurzzeitig hinter der Realität zurückbleiben lassen können. Für den
+regulären, sequenziellen Anwendungsfall (ein User legt eine Gruppe an, wartet auf Erfolg, legt die
+nächste an – die reale Nutzerinteraktion ist immer deutlich langsamer als die
+Trigger-Verarbeitung) ist das Limit exakt bei der 4. Gruppe wirksam. Ein echtzeit-atomares,
+race-freies Limit selbst unter adversarieller, hochparalleler Anfragenflut würde eine client-
+aufrufbare Cloud Function mit einer serverseitigen Transaktion benötigen – eine in diesem Repository
+bisher nirgends verwendete, neue Architektur (bislang schreibt der Client immer direkt gegen
+Firestore, abgesichert durch Security Rules), die bewusst nicht ohne erneute Rücksprache eingeführt
+wird.
 
 **„Meine Gruppen"** wird über eine Collection-Group-Query auf `members` (`where uid ==
 meineUid`) gelöst statt über ein redundantes `member_uids`-Array auf dem Gruppendokument, das

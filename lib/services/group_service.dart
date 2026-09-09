@@ -3,6 +3,7 @@ import 'dart:io';
 import '../models/group_model.dart';
 import '../repositories/friend_repository.dart';
 import '../repositories/group_repository.dart';
+import '../repositories/premium_repository.dart';
 import '../services/storage_service.dart';
 import '../utils/group_exceptions.dart';
 import '../utils/group_validators.dart';
@@ -10,15 +11,28 @@ import '../utils/group_validators.dart';
 /// Orchestriert das Gruppen-System. Die UI spricht ausschließlich mit diesem
 /// Service, nie direkt mit Firestore/Storage.
 class GroupService {
-  GroupService(this._groupRepository, this._friendRepository, this._storageService);
+  GroupService(
+    this._groupRepository,
+    this._friendRepository,
+    this._storageService,
+    this._premiumRepository,
+  );
 
   final GroupRepository _groupRepository;
   final FriendRepository _friendRepository;
   final StorageService _storageService;
+  final PremiumRepository _premiumRepository;
+
+  /// §15: Free-User dürfen maximal 3 Gruppen gleichzeitig haben, Premium
+  /// unbegrenzt - mit dem Produktverantwortlichen abgestimmt. Gilt für BEIDE
+  /// Beitrittswege (Gruppe anlegen und Einladung annehmen) gleich, siehe
+  /// [_requireGroupLimitNotExceeded].
+  static const int freeGroupLimit = 3;
 
   Future<Group> createGroup({required String name, required String creatorUid}) async {
     final validationError = GroupValidators.name(name);
     if (validationError != null) throw GroupActionException(validationError);
+    await _requireGroupLimitNotExceeded(creatorUid);
     return _groupRepository.createGroup(name: name.trim(), creatorUid: creatorUid);
   }
 
@@ -77,8 +91,9 @@ class GroupService {
     );
   }
 
-  Future<void> acceptInvitation({required String groupId, required String inviteeUid}) {
-    return _groupRepository.acceptInvitation(groupId: groupId, inviteeUid: inviteeUid);
+  Future<void> acceptInvitation({required String groupId, required String inviteeUid}) async {
+    await _requireGroupLimitNotExceeded(inviteeUid);
+    await _groupRepository.acceptInvitation(groupId: groupId, inviteeUid: inviteeUid);
   }
 
   Future<void> declineInvitation({required String groupId, required String inviteeUid}) {
@@ -153,6 +168,22 @@ class GroupService {
     final member = await _groupRepository.getMember(groupId, uid);
     if (member == null || !member.isAdmin) {
       throw const GroupActionException('Nur der Admin der Gruppe darf diese Aktion ausführen.');
+    }
+  }
+
+  /// Clientseitige Vorab-Prüfung für einen sofortigen, verständlichen
+  /// Fehlertext (§15: Free-Gruppen-Limit) - die tatsächliche, sicherheits-
+  /// relevante Durchsetzung erfolgt unabhängig davon immer serverseitig über
+  /// die Firestore Rule `groupMembershipCount()` (niemals nur clientseitig
+  /// geprüft, analog zu `SwipeService.superSwipeMovie`).
+  Future<void> _requireGroupLimitNotExceeded(String uid) async {
+    if (await _premiumRepository.isPremium(uid)) return;
+    final count = await _groupRepository.myGroupCount(uid);
+    if (count >= freeGroupLimit) {
+      throw const GroupActionException(
+        'Du hast bereits die maximale Anzahl von 3 Gruppen erreicht. '
+        'Werde Premium-Mitglied für unbegrenzt viele Gruppen.',
+      );
     }
   }
 }

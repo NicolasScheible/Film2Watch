@@ -36,6 +36,25 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/premium_status/$(uid)).data.is_premium == true;
     }
 
+    // §15: "Free-User dürfen maximal 3 Gruppen gleichzeitig haben, Premium
+    // unbegrenzt" - mit dem Produktverantwortlichen abgestimmt. Firestore
+    // Rules können eine unbegrenzt lange Collection-Group (wie viele Gruppen
+    // hat dieser User insgesamt) nicht selbst zählen (keine Aggregations-
+    // Queries in Rules, nur `get`/`exists` auf einzelne Dokumentpfade) -
+    // deshalb liest diese Funktion einen dedizierten, serverseitig gepflegten
+    // Zähler (`group_membership_counts/{uid}`, siehe die Collection weiter
+    // unten), analog zu `isPremium()`/`premium_status`. Kein Dokument
+    // bedeutet 0 Gruppen (Normalfall für einen brandneuen User).
+    function groupMembershipCount(uid) {
+      return exists(/databases/$(database)/documents/group_membership_counts/$(uid))
+        ? get(/databases/$(database)/documents/group_membership_counts/$(uid)).data.count
+        : 0;
+    }
+
+    function maxFreeGroups() {
+      return 3;
+    }
+
     // Lädt die übergeordnete Abstimmung (§21: "Filmabend-Abstimmung") - für
     // die Options- und Votes-Regeln unten, die Status/Deadline der
     // Abstimmung prüfen müssen, ohne sie selbst verändern zu dürfen.
@@ -103,6 +122,18 @@ service cloud.firestore {
     // kein Client (auch nicht der Owner selbst) darf sich hier jemals selbst
     // Premium-Rechte einräumen.
     match /premium_status/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // §15-Gruppen-Limit: wie viele Gruppen ist dieser User aktuell Mitglied.
+    // Genau wie premium_status/user_preferences ausschließlich serverseitig
+    // gepflegt (Cloud-Function-Trigger `onGroupMemberWritten`, siehe
+    // `functions/groupMembershipCount.js`, Admin-SDK umgeht Rules) - kein
+    // Client (auch nicht der Owner selbst) darf diesen Zähler direkt
+    // schreiben, sonst könnte er das eigene Gruppen-Limit unterlaufen, indem
+    // er ihn künstlich niedrig hält.
+    match /group_membership_counts/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
       allow write: if false;
     }
@@ -198,13 +229,22 @@ service cloud.firestore {
         // sich selbst als Admin eintragen. Beitritt danach ausschließlich als
         // 'member' und ausschließlich mit einer echten, an einen selbst
         // gerichteten Einladung (siehe group_invitations unten).
-        allow create: if isSignedIn() && request.auth.uid == memberUid && (
-          (request.resource.data.role == 'admin'
-            && get(/databases/$(database)/documents/groups/$(groupId)).data.created_by == request.auth.uid)
-          ||
-          (request.resource.data.role == 'member'
-            && exists(/databases/$(database)/documents/group_invitations/$(groupId + '_' + request.auth.uid)))
-        );
+        //
+        // §15-Gruppen-Limit gilt für BEIDE Beitrittswege gleich (Gruppe
+        // anlegen UND Einladung annehmen zählen beide als "eine weitere
+        // Gruppe") - ein Free-User mit bereits 3 Mitgliedschaften kann daher
+        // weder eine neue Gruppe anlegen noch einer weiteren beitreten;
+        // Premium-User sind unbegrenzt. Siehe `groupMembershipCount()` oben
+        // für die serverseitige, manipulationssichere Herkunft des Zählers.
+        allow create: if isSignedIn() && request.auth.uid == memberUid
+          && (isPremium(request.auth.uid) || groupMembershipCount(request.auth.uid) < maxFreeGroups())
+          && (
+            (request.resource.data.role == 'admin'
+              && get(/databases/$(database)/documents/groups/$(groupId)).data.created_by == request.auth.uid)
+            ||
+            (request.resource.data.role == 'member'
+              && exists(/databases/$(database)/documents/group_invitations/$(groupId + '_' + request.auth.uid)))
+          );
 
         // Rollenänderungen (z. B. Admin-Übertragung) nur durch den Admin.
         allow update: if isGroupAdmin(groupId)

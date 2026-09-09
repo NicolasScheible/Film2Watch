@@ -37,6 +37,70 @@ before(async () => {
     await db.doc('groups/g1/members/bob').set({ uid: 'bob', role: 'member', joined_at: now() });
     // alice und carol sind Freunde, alice und dave nicht.
     await db.doc('friendships/alice_carol').set({ uids: ['alice', 'carol'], createdAt: now() });
+
+    // Fixtures für das §15-Gruppen-Limit (max. 3 Gruppen für Free-User,
+    // unbegrenzt für Premium) - eigene, unbenutzte User (erin/frank/gina),
+    // damit diese Tests nicht mit den obigen Gruppen-Tests interferieren.
+    // `group_membership_counts` simuliert hier direkt das Ergebnis des
+    // Cloud-Function-Triggers `onGroupMemberWritten`, ohne ihn auszuführen -
+    // die Rules selbst kennen nur den gespeicherten Zählerwert.
+    await db.doc('group_membership_counts/erin').set({ count: 3 });
+    await db.doc('group_membership_counts/frank').set({ count: 3 });
+    await db.doc('premium_status/frank').set({ is_premium: true });
+    await db.doc('group_membership_counts/gina').set({ count: 2 });
+
+    await db.doc('groups/limit-admin-free').set({
+      id: 'limit-admin-free',
+      name: 'Limit-Test',
+      photo_url: null,
+      created_by: 'erin',
+      created_at: now(),
+      updated_at: now(),
+    });
+    await db.doc('groups/limit-admin-premium').set({
+      id: 'limit-admin-premium',
+      name: 'Limit-Test',
+      photo_url: null,
+      created_by: 'frank',
+      created_at: now(),
+      updated_at: now(),
+    });
+    await db.doc('groups/limit-admin-under').set({
+      id: 'limit-admin-under',
+      name: 'Limit-Test',
+      photo_url: null,
+      created_by: 'gina',
+      created_at: now(),
+      updated_at: now(),
+    });
+    await db.doc('groups/limit-invite-free').set({
+      id: 'limit-invite-free',
+      name: 'Limit-Test',
+      photo_url: null,
+      created_by: 'alice',
+      created_at: now(),
+      updated_at: now(),
+    });
+    await db.doc('group_invitations/limit-invite-free_erin').set({
+      groupId: 'limit-invite-free',
+      inviterUid: 'alice',
+      inviteeUid: 'erin',
+      createdAt: now(),
+    });
+    await db.doc('groups/limit-invite-premium').set({
+      id: 'limit-invite-premium',
+      name: 'Limit-Test',
+      photo_url: null,
+      created_by: 'alice',
+      created_at: now(),
+      updated_at: now(),
+    });
+    await db.doc('group_invitations/limit-invite-premium_frank').set({
+      groupId: 'limit-invite-premium',
+      inviterUid: 'alice',
+      inviteeUid: 'frank',
+      createdAt: now(),
+    });
   });
 });
 
@@ -146,5 +210,59 @@ describe('group_invitations/{invitationId}', () => {
     await assertSucceeds(
       db.doc('groups/g1/members/carol').set({ uid: 'carol', role: 'member', joined_at: now() }),
     );
+  });
+});
+
+describe('§15-Gruppen-Limit: groups/{groupId}/members/{uid} create', () => {
+  it('lehnt es ab, dass ein Free-User mit bereits 3 Gruppen eine weitere Gruppe anlegt', async () => {
+    const db = testEnv.authenticatedContext('erin').firestore();
+    await assertFails(
+      db.doc('groups/limit-admin-free/members/erin').set({ uid: 'erin', role: 'admin', joined_at: now() }),
+    );
+  });
+
+  it('erlaubt es einem Premium-User mit bereits 3 Gruppen, eine weitere Gruppe anzulegen', async () => {
+    const db = testEnv.authenticatedContext('frank').firestore();
+    await assertSucceeds(
+      db.doc('groups/limit-admin-premium/members/frank').set({ uid: 'frank', role: 'admin', joined_at: now() }),
+    );
+  });
+
+  it('erlaubt es einem Free-User mit erst 2 Gruppen, eine 3. Gruppe anzulegen', async () => {
+    const db = testEnv.authenticatedContext('gina').firestore();
+    await assertSucceeds(
+      db.doc('groups/limit-admin-under/members/gina').set({ uid: 'gina', role: 'admin', joined_at: now() }),
+    );
+  });
+
+  it('lehnt es ab, dass ein Free-User mit bereits 3 Gruppen eine Einladung annimmt', async () => {
+    const db = testEnv.authenticatedContext('erin').firestore();
+    await assertFails(
+      db.doc('groups/limit-invite-free/members/erin').set({ uid: 'erin', role: 'member', joined_at: now() }),
+    );
+  });
+
+  it('erlaubt es einem Premium-User mit bereits 3 Gruppen, eine Einladung anzunehmen', async () => {
+    const db = testEnv.authenticatedContext('frank').firestore();
+    await assertSucceeds(
+      db.doc('groups/limit-invite-premium/members/frank').set({ uid: 'frank', role: 'member', joined_at: now() }),
+    );
+  });
+});
+
+describe('group_membership_counts/{uid}', () => {
+  it('erlaubt dem eigenen User nur das Lesen', async () => {
+    const db = testEnv.authenticatedContext('erin').firestore();
+    await assertSucceeds(db.doc('group_membership_counts/erin').get());
+  });
+
+  it('lehnt das Lesen eines fremden Zählers ab', async () => {
+    const db = testEnv.authenticatedContext('frank').firestore();
+    await assertFails(db.doc('group_membership_counts/erin').get());
+  });
+
+  it('lehnt jeden clientseitigen Schreibzugriff ab, auch auf den eigenen Zähler', async () => {
+    const db = testEnv.authenticatedContext('erin').firestore();
+    await assertFails(db.doc('group_membership_counts/erin').set({ count: 0 }));
   });
 });

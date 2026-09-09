@@ -14,6 +14,7 @@ const { notifyMoviePollCreated } = require('./notifyMoviePollCreated');
 const { notifyMoviePollResolved } = require('./notifyMoviePollResolved');
 const { resolveDuePolls } = require('./moviePollEngine');
 const { sendDueMovieNightReminders } = require('./movieNightReminderEngine');
+const { applyMembershipCountDelta } = require('./groupMembershipCount');
 
 admin.initializeApp();
 
@@ -108,6 +109,39 @@ exports.onFriendRequestCreated = functions.firestore
     } catch (error) {
       functions.logger.error('Freundschaftsanfrage-Notification fehlgeschlagen', {
         requestId: context.params.requestId,
+        error: error.message,
+      });
+    }
+    return null;
+  });
+
+/**
+ * Hält §15s Free-Gruppen-Limit (max. 3, unbegrenzt für Premium) serverseitig
+ * durchsetzbar: pflegt `group_membership_counts/{uid}.count` (siehe
+ * `groupMembershipCount.js`), den die Firestore Rule `groupMembershipCount()`
+ * beim Anlegen einer neuen Mitgliedschaft liest. Reagiert ausschließlich auf
+ * tatsächliches Beitreten/Verlassen (Dokument entsteht/verschwindet) - eine
+ * reine Rollenänderung (z. B. Admin-Übertragung, `update` bleibt
+ * Anlegen/Löschen unverändert) ändert die Anzahl der Gruppen eines Users
+ * nicht und wird daher bewusst ignoriert.
+ */
+exports.onGroupMemberWritten = functions.firestore
+  .document('groups/{groupId}/members/{memberUid}')
+  .onWrite(async (change, context) => {
+    const existedBefore = change.before.exists;
+    const existsAfter = change.after.exists;
+    if (existedBefore === existsAfter) return null;
+
+    try {
+      await applyMembershipCountDelta({
+        firestore: admin.firestore(),
+        uid: context.params.memberUid,
+        delta: existsAfter ? 1 : -1,
+      });
+    } catch (error) {
+      functions.logger.error('Gruppen-Mitgliedschaftszähler fehlgeschlagen', {
+        groupId: context.params.groupId,
+        memberUid: context.params.memberUid,
         error: error.message,
       });
     }
