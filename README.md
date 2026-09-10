@@ -4,13 +4,14 @@
 
 ## Projektstatus
 
-Aktueller Schritt: **Gruppen-Limit für Free-User (§15)**. §15 nennt für Premium „Unbegrenzte
-Gruppen" ohne die konkrete Free-Grenze zu beziffern - **mit dem Produktverantwortlichen
-abgestimmt**: Free-User dürfen maximal 3 Gruppen gleichzeitig haben (Anlegen UND
-Einladung-Annehmen zählen gleichermaßen), Premium-User unbegrenzt. Siehe „Gruppen" unten für die
-vollständige Herleitung. Zeitgesteuerter Filmabend-Reminder (§12/§21), Boost-Bonus für Super Swipe
-(§6/§15), Filmabend-Abstimmung (§21), Premium-Mehrfachauswahl beim Plattform-Filter (§15), Profil-,
-Freundes-, Profilbild-, TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button,
+Aktueller Schritt: **Premium-Statistiken (§15)**. §15 nennt „Detaillierte Statistiken" als
+Premium-Feature ohne konkreten Umfang - **mit dem Produktverantwortlichen abgestimmt**: einfache
+Kennzahlen ausschließlich aus bereits vorhandenen Daten (Anzahl Swipes/Likes/Dislikes/Watchlist/
+Matches, Lieblingsgenres aus `user_preferences`), keine neue Tracking-Infrastruktur. Siehe
+„Statistiken (§15)" unten für die vollständige Herleitung. Gruppen-Limit für Free-User (§15),
+Zeitgesteuerter Filmabend-Reminder (§12/§21), Boost-Bonus für Super Swipe (§6/§15),
+Filmabend-Abstimmung (§21), Premium-Mehrfachauswahl beim Plattform-Filter (§15), Profil-, Freundes-,
+Profilbild-, TMDB-, Swipe- (inkl. Watchlist-Ansicht, Filtersystem, Trailer-Button,
 Watchlist-Eintrag entfernen, Cast-Anti-Boost und Super-Swipe-UI), Match-, Chat-, Push-, Onboarding-
 und globaler Swipe-Tab-Schritt aus den vorherigen Schritten unverändert.
 
@@ -20,9 +21,10 @@ folgt noch als eigener Schritt):
 - **Echte Premium-Aktivierung** (RevenueCat/App-Store-/Play-Store-Abo) - benötigt externe
   Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; nur das Datenmodell/Gating
   ist bereits fertig.
-- **Statistiken** (§15 „Detaillierte Statistiken") - **bereits entschieden:** einfache Kennzahlen
-  aus bereits vorhandenen Daten (Anzahl Swipes/Matches/Filmabende, Lieblingsgenre aus
-  `user_preferences`) - keine neue Tracking-Infrastruktur.
+- **Erweiterte/Gruppen-Statistiken** (§15) - bewusst nicht Teil dieses Schritts, siehe
+  „Statistiken (§15)" unten für die genaue Abgrenzung (Gruppen-Kennzahlen sind zwar technisch
+  ebenfalls ohne neue Datenmodellierung ableitbar, aber nicht Teil der abgestimmten
+  „persönliche Statistik-Ansicht").
 - **Werbefrei** (§15) - hängt am selben Blocker wie Werbung/AdMob unten.
 - **Werbung** (AdMob, §14) - die Master-Spezifikation nennt tatsächlich konkrete Parameter
   (Video-Ad ca. alle 10 Swipes, 5–10 Sekunden, ab 3 Sekunden überspringbar, für Premium-User keine
@@ -844,6 +846,61 @@ Keine – die Firestore Rules, die Cloud Functions und der globale Matches-Tab s
 funktionsfähig ohne weitere externe Konfiguration. Die offenen externen Konfigurationen des
 Gesamtprojekts (Google/Apple Sign-In, APNs) betreffen nicht das Match-System und sind unter
 „Offene externe Konfiguration" weiter unten aufgeführt.
+
+## Statistiken (§15)
+
+**Exakte Vorgabe & Umfang:** §15 nennt „Detaillierte Statistiken" als Premium-Feature, ohne den
+konkreten Umfang zu beziffern. **Mit dem Produktverantwortlichen abgestimmt:** eine persönliche
+Statistik-Ansicht mit einfachen Kennzahlen ausschließlich aus bereits vorhandenen Daten – keine
+neue Tracking-Infrastruktur, keine neuen Swipe-Events, keine zusätzlichen Analytics-Daten nur für
+Statistiken. Gezeigt werden Anzahl Swipes (gesamt, unabhängig vom Typ), Anzahl Likes, Anzahl
+Dislikes, Anzahl Watchlist-Einträge, Anzahl Matches und die Lieblingsgenres.
+
+**Datenherkunft (bewusst keine neue Aggregation/Infrastruktur):**
+- Swipes/Likes/Dislikes/Watchlist: `SwipeRepository.getAllSwipesForUser(uid)` – eine
+  Collection-Group-Query über `groups/*/swipes` mit `where uid == meineUid`, exakt dasselbe Muster
+  wie `functions/userPreferences.js` (serverseitige Genre-Präferenz-Berechnung) und
+  `GroupRepository.myGroupCount` (§15-Gruppen-Limit); nutzt den bereits deklarierten
+  `swipes`-Collection-Group-Index (`firestore.indexes.json`). Die Aggregation zu
+  Likes/Dislikes/Watchlist/Gesamtzahl erfolgt clientseitig aus der geladenen Liste
+  (`UserStatistics.fromSwipes`) – keine neue Firestore-Query pro Kennzahl.
+- Matches: die bereits bestehende, gruppenübergreifende `allMyMatchesProvider`-Liste (identisch zum
+  globalen „Matches"-Tab) – keine zweite, redundante Match-Zählung.
+- Lieblingsgenres: die bereits serverseitig vorberechneten `top_genres`/`genre_affinity` aus
+  `user_preferences/{uid}` (§7/§18/§17.4, unverändert) – Genre-Namen kommen wie im Filter (§10) von
+  TMDB (`movieGenresProvider`).
+
+**Premium-Gating – bewusst reines Produkt-/UI-Gating, keine neue Sicherheitsgrenze:** alle drei
+oben genannten Datenquellen sind für JEDEN eingeloggten User (Free wie Premium) schon **heute**
+lesbar – die eigenen Swipes einer Gruppe, in der man Mitglied ist/war (`allow read: if
+isGroupMember(groupId)`), die eigenen `user_preferences` (bereits von der Boost-Berechnung
+gelesen) und alle Matches der eigenen Gruppen (bereits der komplett frei zugängliche globale
+Matches-Tab). Es gibt also keinen NEUEN Firestore-Lesezugriff, den eine „versteckte UI" für einen
+Free-User freilegen könnte – anders als bei Super Swipe (§6) oder dem Gruppen-Limit (§15), bei
+denen eine echte serverseitige Rule nötig war. Das Premium-Gating hier ist deshalb – bewusst,
+konsistent mit der Plattform-Mehrfachauswahl im Filter (§10/§15) – ausschließlich ein
+Produkt-/UI-Entscheid: `StatisticsScreen` zeigt einem bestätigten Free-User (`isPremiumProvider ==
+false`) einen Upsell-Hinweis statt der echten Zahlen; die zugrunde liegende
+`userStatisticsProvider`-Berechnung läuft unabhängig davon dieselbe für jeden User.
+
+**Architektur:** `UserStatistics` (Modell, `UserStatistics.fromSwipes`) → `userStatisticsProvider`
+(kombiniert die drei oben genannten, bereits bestehenden Quellen) → `StatisticsScreen`
+(Loading/Empty/Error/Daten, Premium-Upsell). Erreichbar über einen neuen Menüpunkt „Statistiken" im
+Profil (`ProfileScreen`, analog zum bestehenden „Freundesanfragen"-Muster).
+
+**Bewusst nicht Teil dieses Schritts:**
+- **Gruppen-Kennzahlen** (z. B. „Swipes/Matches/Filmabende pro Gruppe") – technisch zwar ebenfalls
+  ohne neue Datenmodellierung ableitbar (Aggregations-Queries auf bereits bestehende
+  `swipes`/`matches`/`movie_nights`-Collections pro Gruppe), aber nicht Teil der mit dem
+  Produktverantwortlichen abgestimmten „persönlichen Statistik-Ansicht" – ein möglicher,
+  eigenständiger späterer Schritt.
+- **Zeitreihen/Verlauf** (z. B. „Swipes pro Woche") – §15 nennt nur „Detaillierte Statistiken" ohne
+  einen zeitlichen Verlauf zu fordern; eine echte Zeitreihe bräuchte zusätzliche, heute nicht
+  gespeicherte Zeitstempel-Buckets.
+- **Meistgeswipter/meistgematchter Film, häufigste Plattform** – aus der reinen
+  Like/Dislike/Watchlist-Zählung nicht ohne zusätzliche, hier bewusst nicht eingeführte Aggregation
+  (z. B. pro-Film-Zähler) sauber ableitbar.
+- **Vergleich mit Freunden/Gruppe** – rein persönlich, kein Vergleichs-/Ranking-Feature.
 
 ## Datenmodell (Chat)
 

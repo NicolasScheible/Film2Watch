@@ -15,6 +15,7 @@ import '../../utils/friend_error_translator.dart';
 import 'add_friend_screen.dart';
 import 'edit_profile_screen.dart';
 import 'friend_requests_screen.dart';
+import 'statistics_screen.dart';
 
 /// Profilbereich. Zeigt die echten Firestore-Nutzerdaten, den Freundescode,
 /// Freundesanfragen, die Freundesliste sowie den Logout.
@@ -90,6 +91,13 @@ class ProfileScreen extends ConsumerWidget {
               else
                 Column(children: [for (final uid in friendUids) _FriendTile(friendUid: uid)]),
               const SizedBox(height: 32),
+              _SectionHeader(
+                title: 'Statistiken',
+                subtitle: 'Deine Swipe- und Match-Statistiken (Premium)',
+                onTap: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => const StatisticsScreen())),
+              ),
+              const SizedBox(height: 24),
               OutlinedButton(
                 onPressed: () => Navigator.of(context)
                     .push(MaterialPageRoute(builder: (_) => const EditProfileScreen())),

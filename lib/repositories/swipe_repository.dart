@@ -129,4 +129,22 @@ class SwipeRepository {
         .get();
     return snapshot.docs.map(MovieSwipe.fromFirestore).toList();
   }
+
+  /// Alle Swipe-Entscheidungen von [uid] über ALLE Gruppen hinweg -
+  /// Grundlage für die persönliche Statistik-Ansicht (§15: "Detaillierte
+  /// Statistiken"). Collection-Group-Query analog zu
+  /// `functions/userPreferences.js` (dasselbe serverseitige Muster für die
+  /// Genre-Präferenz-Berechnung) und `GroupRepository.myGroupCount` - nutzt
+  /// denselben, bereits deklarierten `swipes`-Collection-Group-Index
+  /// (`firestore.indexes.json`, Feld `uid`), keine neue Rule/kein neuer
+  /// Index nötig: `allow read: if isGroupMember(groupId)` erlaubt bereits
+  /// heute jedem User das Lesen seiner eigenen Swipes in jeder Gruppe, in
+  /// der er Mitglied ist.
+  Future<List<MovieSwipe>> getAllSwipesForUser(String uid) async {
+    final snapshot = await _firestore
+        .collectionGroup('swipes')
+        .where('uid', isEqualTo: uid)
+        .get();
+    return snapshot.docs.map(MovieSwipe.fromFirestore).toList();
+  }
 }
