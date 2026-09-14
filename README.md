@@ -1212,10 +1212,18 @@ hinterlegt, sondern per `--dart-define` injiziert – siehe „TMDB-Integration"
    Erstellungszeitpunkt des Buckets entweder alles sperren oder unsicher offen sein können – bitte
    nach dem Deployment einmal in der Console verifizieren.
 5. **Firestore-Index deployen** – `firestore.indexes.json` (Collection-Group-Indizes auf
-   `members.uid`, nötig für die „Meine Gruppen"-Liste, und auf `movie_night_polls.status`+
-   `.deadline`, nötig für die Scheduled Cloud Function `resolveMoviePolls`, §21) muss über
-   `firebase deploy --only firestore:indexes` veröffentlicht werden, oder Firestore bietet beim
-   ersten Aufruf der jeweiligen Query in der Produktion einen direkten Konsolen-Link zum Anlegen an.
+   `members.uid`, nötig für die „Meine Gruppen"-Liste, auf `swipes.uid`, nötig für die
+   Genre-Präferenz-Berechnung (`functions/userPreferences.js`) und die persönliche
+   Statistik-Ansicht (§15, `SwipeRepository.getAllSwipesForUser`), auf `movie_night_polls.status`+
+   `.deadline`, nötig für die Scheduled Cloud Function `resolveMoviePolls` (§21), und auf
+   `movie_nights.scheduled_at`, nötig für die Scheduled Cloud Function `sendMovieNightReminders`
+   (§12/§21) – muss über `firebase deploy --only firestore:indexes` veröffentlicht werden, oder
+   Firestore bietet beim ersten Aufruf der jeweiligen Query in der Produktion einen direkten
+   Konsolen-Link zum Anlegen an. **Ohne diesen Index schlägt `sendMovieNightReminders` in einer
+   echten (nicht-Emulator) Firestore-Instanz mit `FAILED_PRECONDITION` fehl** – der lokale
+   Firestore-Emulator erzwingt Collection-Group-Indizes nicht, weshalb dieser Bedarf beim
+   ursprünglichen Bauen des Reminders unbemerkt blieb (nachträglich im Rahmen eines
+   Abschluss-Audits ergänzt).
 6. **TMDB API Read Access Token** – wird für alle echten TMDB-Requests benötigt (siehe
    „TMDB-Integration" oben). Ohne ihn zeigt die TMDB-Testseite den Hinweis „TMDB API Key wird
    benötigt.", es werden keine Fake-Daten angezeigt.
@@ -1244,6 +1252,11 @@ verständlichen Fehler statt eines funktionierenden Logins (kein Mock).
 `firestore.rules` und `storage.rules` werden mit echten Tests gegen die lokalen Firebase-
 Emulatoren verifiziert (unterstützen – anders als reine Flutter-Fakes – `exists()`, `resource`
 und Custom Functions). Details und Ausführung: [`firestore-tests/README.md`](firestore-tests/README.md).
+Abgedeckt sind alle 19 in `firestore.rules` definierten Collections/Subcollections, inklusive
+`friend_codes`/`public_profiles` (u. a. das jeweilige `allow list: if false` gegen
+Enumeration/Scraping) – im Rahmen eines Abschluss-Audits nachträglich ergänzt, da diese beiden
+bereits seit dem allerersten Schritt bestehenden Collections zuvor ohne Emulator-Testabdeckung
+waren.
 
 Die Match-*Erkennungslogik* (`functions/matchEngine.js`) wird separat als echter End-to-End-Test
 gegen den Firebase Functions Emulator + Firestore Emulator getestet (`functions/test/`, `npm test`

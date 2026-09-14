@@ -89,6 +89,110 @@ describe('users/{uid}', () => {
   });
 });
 
+describe('friend_codes/{code}', () => {
+  it('lehnt unauthentifizierten Zugriff ab', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(db.doc('friend_codes/FILM-4444').get());
+  });
+
+  it('erlaubt es, den eigenen Code anzulegen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertSucceeds(db.doc('friend_codes/FILM-4444').set({ uid: 'alice' }));
+  });
+
+  it('lehnt es ab, einen Code für einen anderen User anzulegen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(db.doc('friend_codes/FILM-5555').set({ uid: 'bob' }));
+  });
+
+  it('erlaubt jedem authentifizierten User das Nachschlagen eines fremden Codes (get)', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(db.doc('friend_codes/FILM-4444').get());
+  });
+
+  it('lehnt das Auflisten aller Codes ab (keine Enumeration/Scraping möglich)', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(db.collection('friend_codes').get());
+  });
+
+  it('lehnt es ab, einen bestehenden Code zu ändern', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(db.doc('friend_codes/FILM-4444').update({ uid: 'bob' }));
+  });
+
+  it('lehnt es ab, einen bestehenden Code zu löschen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(db.doc('friend_codes/FILM-4444').delete());
+  });
+});
+
+describe('public_profiles/{userId}', () => {
+  it('lehnt unauthentifizierten Zugriff ab', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(db.doc('public_profiles/alice').get());
+  });
+
+  it('erlaubt es, das eigene öffentliche Profil anzulegen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertSucceeds(
+      db.doc('public_profiles/alice').set({
+        uid: 'alice',
+        name: 'Alice',
+        profile_picture: null,
+        friend_code: 'FILM-4444',
+      }),
+    );
+  });
+
+  it('lehnt es ab, ein öffentliches Profil für einen anderen User anzulegen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(
+      db.doc('public_profiles/bob').set({
+        uid: 'bob',
+        name: 'Bob',
+        profile_picture: null,
+        friend_code: 'FILM-5555',
+      }),
+    );
+  });
+
+  it('erlaubt jedem authentifizierten User das Lesen eines fremden öffentlichen Profils (get)', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertSucceeds(db.doc('public_profiles/alice').get());
+  });
+
+  it('lehnt das Auflisten aller öffentlichen Profile ab (keine Enumeration/Scraping möglich)', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(db.collection('public_profiles').get());
+  });
+
+  it('erlaubt dem Owner, Name/Bild zu ändern, solange friend_code unverändert bleibt', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertSucceeds(
+      db.doc('public_profiles/alice').update({ name: 'Alice Neu' }),
+    );
+  });
+
+  it('lehnt es ab, dass der Owner den eigenen friend_code über das öffentliche Profil ändert', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(
+      db.doc('public_profiles/alice').update({ friend_code: 'FILM-9999' }),
+    );
+  });
+
+  it('lehnt es ab, dass ein fremder User ein öffentliches Profil ändert', async () => {
+    const db = testEnv.authenticatedContext('bob').firestore();
+    await assertFails(
+      db.doc('public_profiles/alice').update({ name: 'Gehackt' }),
+    );
+  });
+
+  it('lehnt es ab, ein öffentliches Profil zu löschen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(db.doc('public_profiles/alice').delete());
+  });
+});
+
 describe('friend_requests/{requestId}', () => {
   it('lehnt eine Anfrage ab, die nicht vom Absender selbst erstellt wird', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
