@@ -40,6 +40,12 @@ folgt noch als eigener Schritt):
   dieser Umgebung nicht beschaffbar. Sobald ein Provider/API-Zugang bereitsteht, ist ein erneutes
   Audit für Provider-Wahl, UX (Suche vs. nur Trending) und Datenmodell (neues Feld für die
   GIF-Referenz) erforderlich, bevor implementiert werden kann.
+- **KI-Chatbot für Filmvorschläge** (§21: "KI-generierte Abendvorschläge") - **von der
+  Spezifikation selbst dreifach ausdrücklich als optional/später markiert:** in der Einleitung
+  ("optionales Zusatzfeature, aber nicht Teil der Kernversion"), in der MVP-Liste (§19: "Nicht im
+  MVP (kommen später): ... KI-Funktionen") und in §21 selbst ("bleibt vorerst optional und kann
+  später integriert werden"). Keine PO-Entscheidung nötig - bewusst zurückgestellt, nicht
+  implementiert. Keine LLM-/Chatbot-Anbindung, kein Provider, kein API-Key vorhanden.
 
 ## Tech-Stack
 
