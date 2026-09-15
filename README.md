@@ -162,6 +162,20 @@ Freundescode-System als eigenständiges MVP-Feature. Der Freundescode bleibt dah
 Weg, um Freunde hinzuzufügen – kein Kontakte-Package, keine `READ_CONTACTS`-Permission
 (Android)/`NSContactsUsageDescription` (iOS), kein Telefonnummer-/E-Mail-Feld im Datenmodell.
 
+**§16 „Einstellungen"**: Mit dem Produktverantwortlichen abgestimmt – **ein eigener
+Einstellungen-Bereich ist in diesem Umsetzungsschritt bewusst zurückgestellt**. §16 nennt
+"Einstellungen" im Profil-Bereich nur als Stichwort, ohne Inhalt zu definieren, und "Einstellungen"
+taucht in der MVP-Priorisierung an keiner Stelle auf. Die GUI-Spezifikation nennt zwar
+Benachrichtigungen, Dunkler Modus, Sprache, Datenschutz sowie Hilfe & Feedback als mögliche
+Unterpunkte, definiert deren Verhalten aber nicht ausreichend (u. a. unklar, welche Sprachen,
+was "Datenschutz" konkret anzeigen soll, wohin "Kontakt" führt) – und widerspricht sich sogar
+selbst beim "Dunklen Modus" (als Toggle gelistet, während die App an anderer Stelle durchgehend
+als grundsätzlich dunkel beschrieben wird, ohne Light-Theme). Profil bleibt daher bei den bereits
+vorhandenen, jeweils eigenständig entschiedenen Funktionen (Freunde, Profil bearbeiten,
+Statistiken, Abmelden). **Konto löschen** und **Passwort ändern** (im eingeloggten Zustand) werden
+ausdrücklich **nicht** als §16-Anforderung dokumentiert, da sie in keiner der geprüften
+Spezifikationen erwähnt werden.
+
 ## Datenmodell (Gruppen)
 
 | Collection | Zweck | Zugriff |
