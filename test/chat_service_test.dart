@@ -1,4 +1,5 @@
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:film2watch/models/chat_message.dart';
 import 'package:film2watch/repositories/chat_repository.dart';
 import 'package:film2watch/repositories/group_repository.dart';
 import 'package:film2watch/services/chat_service.dart';
@@ -96,6 +97,23 @@ void main() {
     test('Senden durch ein Nicht-Mitglied schlägt fehl', () async {
       expect(
         () => chatService.sendMessage(groupId: groupId, senderUid: 'carol', text: 'Ich bin fremd'),
+        throwsA(isA<ChatActionException>()),
+      );
+    });
+
+    test('Film teilen (§11) legt eine Chat-Nachricht mit type/sender_uid/movie_id an', () async {
+      await chatService.shareMovie(groupId: groupId, senderUid: 'alice', movieId: 550);
+
+      final messages = await chatRepository.watchLatestMessages(groupId).first;
+      expect(messages, hasLength(1));
+      expect(messages.single.type, ChatMessageType.movieShare);
+      expect(messages.single.senderUid, 'alice');
+      expect(messages.single.movieId, 550);
+    });
+
+    test('Film teilen durch ein Nicht-Mitglied schlägt fehl', () async {
+      expect(
+        () => chatService.shareMovie(groupId: groupId, senderUid: 'carol', movieId: 550),
         throwsA(isA<ChatActionException>()),
       );
     });

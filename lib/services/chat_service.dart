@@ -37,4 +37,20 @@ class ChatService {
 
     await _chatRepository.sendMessage(groupId: groupId, senderUid: senderUid, text: trimmed);
   }
+
+  /// Teilt einen Film in den Gruppenchat (§11: "Teilen von Filmkarten") -
+  /// dieselbe Mitgliedschaftsprüfung wie [sendMessage], da nur Mitglieder
+  /// überhaupt in diesen Chat schreiben dürfen.
+  Future<void> shareMovie({
+    required String groupId,
+    required String senderUid,
+    required int movieId,
+  }) async {
+    final member = await _groupRepository.getMember(groupId, senderUid);
+    if (member == null) {
+      throw const ChatActionException('Du bist kein Mitglied dieser Gruppe.');
+    }
+
+    await _chatRepository.shareMovie(groupId: groupId, senderUid: senderUid, movieId: movieId);
+  }
 }

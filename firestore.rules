@@ -333,22 +333,35 @@ service cloud.firestore {
       // normale Mitglieder) - eine spätere Erweiterung ist ein eigener
       // Entwicklungsschritt. `hasOnly` verhindert zusätzliche, nicht
       // vorgesehene Felder (z. B. eine untergeschobene Sender-Kopie). Diese
-      // Regel deckt bewusst nur clientseitig geschriebene Text-Nachrichten
-      // ab: serverseitige Match-Systemnachrichten (`type: 'match'`, siehe
-      // `functions/postMatchChatMessage.js`) haben eine andere Feldform
-      // (`movie_id` statt `sender_uid`/`text`) und werden allein deshalb
-      // schon strukturell von `create` abgelehnt, zusätzlich zum
-      // Admin-SDK-Bypass für den echten Server-Schreibzugriff.
+      // Regel erlaubt genau zwei clientseitig schreibbare Feldformen: normale
+      // Text-Nachrichten sowie manuell geteilte Filme (`type: 'movie_share'`,
+      // §11: "Teilen von Filmkarten") - beide mit `sender_uid ==
+      // request.auth.uid`, da beide von einem konkreten Mitglied stammen.
+      // Serverseitige Match-Systemnachrichten (`type: 'match'`, siehe
+      // `functions/postMatchChatMessage.js`) haben keinen `sender_uid` und
+      // werden daher von beiden Zweigen strukturell abgelehnt, zusätzlich
+      // zum Admin-SDK-Bypass für den echten Server-Schreibzugriff - ein
+      // Client kann eine Match-Nachricht also auch nicht durch Vortäuschen
+      // eines eigenen `sender_uid` fälschen.
       match /messages/{messageId} {
         allow read: if isGroupMember(groupId);
 
         allow create: if isGroupMember(groupId)
           && request.auth.uid == request.resource.data.sender_uid
-          && request.resource.data.text is string
-          && request.resource.data.text.size() > 0
-          && request.resource.data.text.size() <= 2000
-          && request.resource.data.created_at == request.time
-          && request.resource.data.keys().hasOnly(['sender_uid', 'text', 'created_at']);
+          && (
+            (
+              request.resource.data.text is string
+              && request.resource.data.text.size() > 0
+              && request.resource.data.text.size() <= 2000
+              && request.resource.data.created_at == request.time
+              && request.resource.data.keys().hasOnly(['sender_uid', 'text', 'created_at'])
+            ) || (
+              request.resource.data.type == 'movie_share'
+              && request.resource.data.movie_id is int
+              && request.resource.data.created_at == request.time
+              && request.resource.data.keys().hasOnly(['type', 'sender_uid', 'movie_id', 'created_at'])
+            )
+          );
 
         allow update: if false;
         allow delete: if false;

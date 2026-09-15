@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../components/movies/share_movie_dialog.dart';
 import '../../components/movies/trailer_dialog.dart';
 import '../../providers/tmdb_provider.dart';
 import '../../services/tmdb_image_service.dart';
@@ -30,6 +31,13 @@ class MovieDetailScreen extends ConsumerWidget {
                 expandedHeight: 220,
                 pinned: true,
                 backgroundColor: AppColors.background,
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.ios_share),
+                    tooltip: 'In Gruppenchat teilen',
+                    onPressed: () => ShareMovieDialog.show(context, tmdbId),
+                  ),
+                ],
                 flexibleSpace: FlexibleSpaceBar(
                   background: backdropUrl == null
                       ? Container(color: AppColors.surfaceVariant)

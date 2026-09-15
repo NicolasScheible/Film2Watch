@@ -60,6 +60,24 @@ void main() {
       expect(message.text, isNull);
     });
 
+    test('type "movie_share" wird als geteilter Film gelesen, mit sender_uid UND movie_id',
+        () async {
+      final ref = firestore.collection('groups/g1/messages').doc('msg5');
+      await ref.set({
+        'type': 'movie_share',
+        'sender_uid': 'bob',
+        'movie_id': 550,
+        'created_at': Timestamp.now(),
+      });
+
+      final message = ChatMessage.fromFirestore(await ref.get());
+
+      expect(message.type, ChatMessageType.movieShare);
+      expect(message.senderUid, 'bob');
+      expect(message.movieId, 550);
+      expect(message.text, isNull);
+    });
+
     test('unbekannter type-Wert fällt sicher auf Text zurück', () async {
       final ref = firestore.collection('groups/g1/messages').doc('msg4');
       await ref.set({

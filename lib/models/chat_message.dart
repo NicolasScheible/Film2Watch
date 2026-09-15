@@ -3,13 +3,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// Art einer Chat-Nachricht. `text` sind normale Nutzer-Nachrichten,
 /// `match` sind serverseitig erzeugte System-Nachrichten (siehe
 /// `functions/postMatchChatMessage.js`), die ein neues Match ankündigen.
+/// `movieShare` ist ein von einem Mitglied manuell geteilter Film (§11:
+/// "Teilen von Filmkarten").
 enum ChatMessageType {
   text,
-  match;
+  match,
+  movieShare;
+
+  /// Firestore-Feldwert - abweichend vom Dart-Namen für [movieShare]
+  /// (`movie_share` statt `movieShare`), analog zu `SwipeDecision.firestoreValue`.
+  String get firestoreValue => this == ChatMessageType.movieShare ? 'movie_share' : name;
 
   static ChatMessageType fromString(String? value) {
     return ChatMessageType.values.firstWhere(
-      (type) => type.name == value,
+      (type) => type.firestoreValue == value,
       orElse: () => ChatMessageType.text,
     );
   }
@@ -34,15 +41,16 @@ class ChatMessage {
   final String id;
   final ChatMessageType type;
 
-  /// Nur bei [ChatMessageType.text] gesetzt.
+  /// Bei [ChatMessageType.text] und [ChatMessageType.movieShare] gesetzt.
   final String? senderUid;
 
   /// Nur bei [ChatMessageType.text] gesetzt.
   final String? text;
 
-  /// Nur bei [ChatMessageType.match] gesetzt - der TMDB-Film, der zum Match
-  /// geführt hat. Wird clientseitig über `movieDetailsProvider` aufgelöst
-  /// (Cloud Functions haben bewusst keinen TMDB-Zugriff).
+  /// Bei [ChatMessageType.match] und [ChatMessageType.movieShare] gesetzt -
+  /// der referenzierte TMDB-Film. Wird clientseitig über
+  /// `movieDetailsProvider` aufgelöst (Cloud Functions haben bewusst keinen
+  /// TMDB-Zugriff).
   final int? movieId;
 
   /// Serverseitiger Timestamp (`FieldValue.serverTimestamp()`) - niemals die
@@ -59,12 +67,14 @@ class ChatMessage {
     // Bestehende Dokumente haben kein `type`-Feld - fällt auf `text` zurück,
     // damit alte Nachrichten unverändert weiter angezeigt werden.
     final type = ChatMessageType.fromString(data['type'] as String?);
+    final hasSender = type == ChatMessageType.text || type == ChatMessageType.movieShare;
+    final hasMovie = type == ChatMessageType.match || type == ChatMessageType.movieShare;
     return ChatMessage(
       id: doc.id,
       type: type,
-      senderUid: type == ChatMessageType.text ? (data['sender_uid'] as String? ?? '') : null,
+      senderUid: hasSender ? (data['sender_uid'] as String? ?? '') : null,
       text: type == ChatMessageType.text ? (data['text'] as String? ?? '') : null,
-      movieId: type == ChatMessageType.match ? (data['movie_id'] as int?) : null,
+      movieId: hasMovie ? (data['movie_id'] as int?) : null,
       createdAt: createdAtValue is Timestamp ? createdAtValue.toDate() : DateTime.now(),
     );
   }

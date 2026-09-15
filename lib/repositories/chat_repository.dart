@@ -52,4 +52,20 @@ class ChatRepository {
       'created_at': FieldValue.serverTimestamp(),
     });
   }
+
+  /// Teilt einen Film als Chat-Nachricht (§11: "Teilen von Filmkarten") -
+  /// dieselbe Auto-ID-/Timestamp-Logik wie [sendMessage], nur mit der
+  /// `movieShare`-Feldform statt `text`.
+  Future<void> shareMovie({
+    required String groupId,
+    required String senderUid,
+    required int movieId,
+  }) {
+    return _messages(groupId).add({
+      'type': ChatMessageType.movieShare.firestoreValue,
+      'sender_uid': senderUid,
+      'movie_id': movieId,
+      'created_at': FieldValue.serverTimestamp(),
+    });
+  }
 }

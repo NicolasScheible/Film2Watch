@@ -216,4 +216,104 @@ describe('groups/{groupId}/messages/{messageId}', () => {
       }),
     );
   });
+
+  // Manuelles Filmkarten-Teilen (§11: "Teilen von Filmkarten") - anders als
+  // die serverseitige Match-Nachricht clientseitig schreibbar, aber mit
+  // exakt derselben sender_uid-Durchsetzung wie normale Text-Nachrichten.
+  describe('Filmkarten teilen (§11, type: "movie_share")', () => {
+    it('erlaubt einem Gruppenmitglied, einen Film zu teilen', async () => {
+      const db = testEnv.authenticatedContext('bob').firestore();
+      await assertSucceeds(
+        db.collection('groups/chatgroup1/messages').add({
+          type: 'movie_share',
+          sender_uid: 'bob',
+          movie_id: 550,
+          created_at: serverTimestamp(),
+        }),
+      );
+    });
+
+    it('lehnt das Teilen durch ein Nicht-Mitglied ab', async () => {
+      const db = testEnv.authenticatedContext('carol').firestore();
+      await assertFails(
+        db.collection('groups/chatgroup1/messages').add({
+          type: 'movie_share',
+          sender_uid: 'carol',
+          movie_id: 550,
+          created_at: now(),
+        }),
+      );
+    });
+
+    it('lehnt es ab, dass User A im Namen von User B einen Film teilt', async () => {
+      const db = testEnv.authenticatedContext('bob').firestore();
+      await assertFails(
+        db.collection('groups/chatgroup1/messages').add({
+          type: 'movie_share',
+          sender_uid: 'alice',
+          movie_id: 550,
+          created_at: now(),
+        }),
+      );
+    });
+
+    it('lehnt eine fehlende movie_id ab', async () => {
+      const db = testEnv.authenticatedContext('bob').firestore();
+      await assertFails(
+        db.collection('groups/chatgroup1/messages').add({
+          type: 'movie_share',
+          sender_uid: 'bob',
+          created_at: now(),
+        }),
+      );
+    });
+
+    it('lehnt eine movie_id vom falschen Typ ab', async () => {
+      const db = testEnv.authenticatedContext('bob').firestore();
+      await assertFails(
+        db.collection('groups/chatgroup1/messages').add({
+          type: 'movie_share',
+          sender_uid: 'bob',
+          movie_id: '550',
+          created_at: now(),
+        }),
+      );
+    });
+
+    it('lehnt einen client-gesetzten created_at-Wert ab (kein request.time)', async () => {
+      const db = testEnv.authenticatedContext('bob').firestore();
+      await assertFails(
+        db.collection('groups/chatgroup1/messages').add({
+          type: 'movie_share',
+          sender_uid: 'bob',
+          movie_id: 550,
+          created_at: new Date('2020-01-01'),
+        }),
+      );
+    });
+
+    it('lehnt zusätzliche, nicht vorgesehene Felder ab', async () => {
+      const db = testEnv.authenticatedContext('bob').firestore();
+      await assertFails(
+        db.collection('groups/chatgroup1/messages').add({
+          type: 'movie_share',
+          sender_uid: 'bob',
+          movie_id: 550,
+          created_at: now(),
+          text: 'Mit Extra-Feld',
+        }),
+      );
+    });
+
+    it('lehnt es ab, dass ein Mitglied eine geteilte Filmkarte nachträglich ändert', async () => {
+      const memberDb = testEnv.authenticatedContext('bob').firestore();
+      const ref = await memberDb.collection('groups/chatgroup1/messages').add({
+        type: 'movie_share',
+        sender_uid: 'bob',
+        movie_id: 550,
+        created_at: serverTimestamp(),
+      });
+      await assertFails(ref.update({ movie_id: 551 }));
+    });
+  });
 });

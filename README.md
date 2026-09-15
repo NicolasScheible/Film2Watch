@@ -913,7 +913,7 @@ Profil (`ProfileScreen`, analog zum bestehenden „Freundesanfragen"-Muster).
 
 | Collection | Zweck | Zugriff |
 |---|---|---|
-| `groups/{groupId}/messages/{messageId}` | Eine Chat-Nachricht: entweder eine Text-Nachricht (`sender_uid, text, created_at`) oder eine serverseitige Match-Systemnachricht (`type: 'match', movie_id, created_at`) | Text-Nachrichten: lesbar/anlegbar für Mitglieder der Gruppe, kein Update/Delete. Match-Systemnachrichten: ausschließlich per Admin-SDK durch `postMatchChatMessage.js` erzeugt, kein Client-Schreibzugriff möglich |
+| `groups/{groupId}/messages/{messageId}` | Eine Chat-Nachricht: eine Text-Nachricht (`sender_uid, text, created_at`), ein manuell geteilter Film (§11: "Teilen von Filmkarten", `type: 'movie_share', sender_uid, movie_id, created_at`) oder eine serverseitige Match-Systemnachricht (`type: 'match', movie_id, created_at`) | Text-Nachrichten und geteilte Filme: lesbar/anlegbar für Mitglieder der Gruppe (`sender_uid == request.auth.uid`), kein Update/Delete. Match-Systemnachrichten: ausschließlich per Admin-SDK durch `postMatchChatMessage.js` erzeugt, kein Client-Schreibzugriff möglich |
 
 Firestore-Auto-ID pro Nachricht. Bewusst **keine** `sender_name`/`sender_profile_picture`-Kopie im
 Dokument: beide lassen sich zuverlässig über das bestehende `public_profiles/{uid}` nachschlagen
@@ -927,10 +927,23 @@ wird abgelehnt.
 weiterhin als normale Text-Nachricht (`ChatMessageType.text`, Default) – vollständig
 rückwärtskompatibel. Enthalten bewusst nur `movie_id`, keinen Filmtitel: Cloud Functions haben
 keinen TMDB-Zugriff und sollen auch keinen bekommen (dasselbe Architekturprinzip wie beim
-Match-Dokument selbst), der Client löst den Film über `movieDetailsProvider` auf. Die bestehende
-`create`-Rule für Text-Nachrichten (`keys().hasOnly(['sender_uid', 'text', 'created_at'])`) lehnt
-jeden Versuch eines Clients, ein `type: 'match'`-Dokument zu fälschen, bereits strukturell ab –
-keine separate Rule nötig, siehe zwei explizite Negativ-Tests in `messages.rules.test.mjs`.
+Match-Dokument selbst), der Client löst den Film über `movieDetailsProvider` auf. Die `create`-Rule
+erlaubt zwei clientseitig schreibbare Feldformen (Text-Nachricht, geteilter Film) und lehnt jeden
+Versuch eines Clients, ein `type: 'match'`-Dokument zu fälschen, bereits strukturell ab (fehlender
+`sender_uid`) – keine separate Rule nötig, siehe die expliziten Negativ-Tests in
+`messages.rules.test.mjs`.
+
+**Filmkarten teilen (`type: 'movie_share'`, §11):** §11 nennt "Teilen von Filmkarten" als
+Chat-Funktion, ohne UX/Datenfelder festzulegen – mit dem Produktverantwortlichen abgestimmt:
+ein "Teilen"-Button auf der Filmdetail-Seite (erreichbar von Swipe, Watchlist, Matches, Filmabend)
+öffnet `ShareMovieDialog` mit der eigenen Gruppenliste (`myGroupsProvider`); Antippen einer Gruppe
+sendet eine Chat-Nachricht mit `sender_uid` (anders als die Match-Systemnachricht: ein geteilter
+Film stammt von einem konkreten Mitglied, nicht von einem Gruppenereignis) und `movie_id` – exakt
+dieselbe Filmkarten-Darstellung wie die Match-Nachricht (Poster/Titel, Antippen öffnet
+`MovieDetailScreen`), nur mit Sender-Avatar/-Name statt Match-Badge. Keine Beschränkung auf bereits
+gematchte Filme (bewusst kein Analogon zu `movie_nights.movie_id`s Match-Pflicht): die Filmdetail-
+Seite ist auch von der Swipe-Warteschlange und der Watchlist aus erreichbar, wo ein Film noch kein
+Match sein muss.
 
 **Maximale Nachrichtenlänge:** 2000 Zeichen (`chatMaxMessageLength` in `lib/services/chat_service.dart`,
 identisch in `firestore.rules` gespiegelt). Ohne konkrete Vorgabe aus einer übergeordneten
@@ -980,6 +993,9 @@ Entwicklungsschritt.
   öffnet `MovieDetailScreen`. `notifyChatMessage.js` (Push für normale Nachrichten) ignoriert
   Systemnachrichten automatisch (fehlender `sender_uid` lässt die Funktion früh zurückkehren) –
   keine doppelte oder fälschliche Push-Notification dafür.
+- **Filmkarten teilen (§11):** "Teilen"-Button (`Icons.ios_share`) auf der Filmdetail-Seite öffnet
+  `ShareMovieDialog` zur Gruppenauswahl. Siehe „Filmkarten teilen (`type: 'movie_share'`, §11)"
+  oben für die vollständige Herleitung.
 - **Nicht Teil dieses Schritts:** Filmabend-/Terminplanung, RSVP, Watch Party.
 
 ## Datenmodell (FCM-Geräte-Tokens)
