@@ -153,6 +153,15 @@ Punktes. Bewusst **kein** Custom-URL-Scheme, Universal Link oder App Link: ein e
 Link würde entweder eine verifizierte, gehostete Domain (nicht vorhanden) oder eine automatische
 Freundschaftsanfrage ohne Grundlage in der Spezifikation erfordern.
 
+**§4 „Kontaktliste"**: Mit dem Produktverantwortlichen abgestimmt – **bewusst zurückgestellt**,
+kein Kontaktzugriff in diesem Schritt. §4 nennt "Kontaktliste" nur als drittes Stichwort neben
+Code/Einladungslink, ohne Mechanismus, verwendete Kontaktdaten, Server-Abgleich oder
+Berechtigungs-Handling zu definieren; die kürzere Konsolidierungs-Fassung der Spezifikation stuft
+diesen Punkt selbst ausdrücklich als "später" ein, und die MVP-Priorisierung nennt nur das
+Freundescode-System als eigenständiges MVP-Feature. Der Freundescode bleibt daher der aktuelle
+Weg, um Freunde hinzuzufügen – kein Kontakte-Package, keine `READ_CONTACTS`-Permission
+(Android)/`NSContactsUsageDescription` (iOS), kein Telefonnummer-/E-Mail-Feld im Datenmodell.
+
 ## Datenmodell (Gruppen)
 
 | Collection | Zweck | Zugriff |
