@@ -146,6 +146,13 @@ lesbar (E-Mail etc.). Damit andere User trotzdem per Freundescode suchen bzw. Na
 Freunden anzeigen können, existiert eine schlanke, öffentliche Teilmenge in einer eigenen
 Collection – ohne dafür das private Profil öffnen zu müssen.
 
+**§4 „Einladungslink"**: Mit dem Produktverantwortlichen abgestimmt – §4 nennt "Einladungslink"
+nur als Stichwort ohne technische Definition; das bereits vorhandene Teilen des Freundescodes als
+Text (`ProfileScreen`, `SharePlus.instance.share(...)`) gilt als vollständige Erfüllung dieses
+Punktes. Bewusst **kein** Custom-URL-Scheme, Universal Link oder App Link: ein echter klickbarer
+Link würde entweder eine verifizierte, gehostete Domain (nicht vorhanden) oder eine automatische
+Freundschaftsanfrage ohne Grundlage in der Spezifikation erfordern.
+
 ## Datenmodell (Gruppen)
 
 | Collection | Zweck | Zugriff |
