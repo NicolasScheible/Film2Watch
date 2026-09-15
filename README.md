@@ -33,6 +33,13 @@ folgt noch als eigener Schritt):
   echten Build zu verifizieren.
 - **Filmabend-Abstimmung/RSVP/Zusagen** (§21 nennt nur die Abstimmung selbst, kein separates
   Teilnahme-Zusagen-Konzept) - bleibt außerhalb des Umfangs von §21.
+- **GIFs im Chat** (§11 nennt "GIFs" als Chat-Funktion, §17.4 kennt dafür nur den Enum-Wert
+  `messages.type: gif` im Datenmodell-Entwurf) - keine weitere Spezifikation zu Provider, Suche,
+  Picker, URL/Feld, Speicherung oder Limits vorhanden. **Aktuell nicht implementiert:** kein
+  Provider (GIPHY/Tenor/o. ä.) entschieden oder eingerichtet, kein API-Key vorhanden - beides in
+  dieser Umgebung nicht beschaffbar. Sobald ein Provider/API-Zugang bereitsteht, ist ein erneutes
+  Audit für Provider-Wahl, UX (Suche vs. nur Trending) und Datenmodell (neues Feld für die
+  GIF-Referenz) erforderlich, bevor implementiert werden kann.
 
 ## Tech-Stack
 
