@@ -47,6 +47,12 @@ folgt noch als eigener Schritt):
   eigenständig festzulegen: Consent-/Datenschutz-Lösung für Werbung (z. B. Google UMP/GDPR).
 - **Filmabend-Abstimmung/RSVP/Zusagen** (§21 nennt nur die Abstimmung selbst, kein separates
   Teilnahme-Zusagen-Konzept) - bleibt außerhalb des Umfangs von §21.
+- **Party-Modus / externe Web-Einladungen** (§21: "Partymodus (Echtzeit-Swipen mit Freunden)",
+  "Externe Einladungen per Web-Link (Nicht-Nutzer können per Browser abstimmen)") - **ausdrücklich
+  später, keine PO-Entscheidung nötig:** beide Punkte stehen sowohl in §19s "Nicht im MVP (kommen
+  später)"-Liste als auch wortgleich in §21 selbst. Nicht implementiert, keine Web-Route/kein
+  öffentlicher, unauthentifizierter Abstimmungspfad vorhanden (Firestore Rules verlangen für jede
+  Abstimmung `isGroupMember`) - konsistent mit der Spezifikation.
 - **GIFs im Chat** (§11 nennt "GIFs" als Chat-Funktion, §17.4 kennt dafür nur den Enum-Wert
   `messages.type: gif` im Datenmodell-Entwurf) - keine weitere Spezifikation zu Provider, Suche,
   Picker, URL/Feld, Speicherung oder Limits vorhanden. **Aktuell nicht implementiert:** kein
