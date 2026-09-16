@@ -18,19 +18,33 @@ und globaler Swipe-Tab-Schritt aus den vorherigen Schritten unverändert.
 Noch **nicht** implementiert (folgt in separaten, kontrollierten Schritten - für die mit „bereits
 entschieden" markierten Punkte liegt die Produktentscheidung bereits vor, nur die Umsetzung selbst
 folgt noch als eigener Schritt):
-- **Echte Premium-Aktivierung** (RevenueCat/App-Store-/Play-Store-Abo) - benötigt externe
-  Zahlungs-/Store-Konfiguration, die in dieser Umgebung nicht existiert; nur das Datenmodell/Gating
-  ist bereits fertig.
+- **Echte Premium-Aktivierung / Kaufweg** (§15: 2–5€/Monat über In-App-Käufe; §18 nennt
+  ausdrücklich RevenueCat für das Abomodell; §19: ★★☆, nicht als "später" eingeordnet). Bereits
+  vollständig implementiert und getestet: **Lesen** des Premium-Status (`PremiumRepository`) sowie
+  die **Anwendung** von vier der fünf §15-Vorteile (Super Swipe, erweiterte Plattform-Filter,
+  unbegrenzte Gruppen, Statistiken) - "keine Werbung" hängt zusätzlich am Werbung-Blocker unten.
+  **Der Kaufweg selbst existiert nicht** und ist extern blockiert, durch drei getrennte, jeweils
+  eigenständig fehlende Voraussetzungen: (1) kein RevenueCat-Projekt/API-Key, (2) keine
+  App-Store-Connect-/Play-Console-Subscription-Produkte bzw. Produkt-IDs, (3) keine native
+  Android-/iOS-Build-Toolchain in dieser Umgebung, um eine reale Integration zu verifizieren. Nicht
+  spezifiziert und **nicht eigenständig festzulegen**, sobald die Voraussetzungen vorliegen: Restore
+  Purchases, Trial-/Intro-Angebote, Jahresabo, exakter Preis innerhalb des 2–5€-Rahmens.
 - **Erweiterte/Gruppen-Statistiken** (§15) - bewusst nicht Teil dieses Schritts, siehe
   „Statistiken (§15)" unten für die genaue Abgrenzung (Gruppen-Kennzahlen sind zwar technisch
   ebenfalls ohne neue Datenmodellierung ableitbar, aber nicht Teil der abgestimmten
   „persönliche Statistik-Ansicht").
 - **Werbefrei** (§15) - hängt am selben Blocker wie Werbung/AdMob unten.
-- **Werbung** (AdMob, §14) - die Master-Spezifikation nennt tatsächlich konkrete Parameter
-  (Video-Ad ca. alle 10 Swipes, 5–10 Sekunden, ab 3 Sekunden überspringbar, für Premium-User keine
-  Werbung) - **bereits entschieden:** zurückgestellt, da diese Entwicklungsumgebung keine
-  Android-/iOS-Build-Toolchain hat, um eine native `google_mobile_ads`-Integration durch einen
-  echten Build zu verifizieren.
+- **Werbung** (AdMob, §14/§19: MVP-Feature ★★☆, nicht als "später" eingeordnet) - grundsätzlich
+  vorgesehen (§14: Video-Ad ca. alle 10 Swipes, 5–10 Sekunden, ab 3 Sekunden überspringbar,
+  Netzwerk Google AdMob; §15 bestätigt: Premium = keine Werbung). Die technische Umsetzung ist
+  aktuell **extern blockiert**, durch zwei getrennte, jeweils eigenständig fehlende
+  Voraussetzungen: (1) kein Ad-SDK, keine AdMob-Konfiguration, keine Ad-Unit-IDs/Credentials, (2)
+  keine native Android-/iOS-Build-Toolchain in dieser Umgebung, um eine `google_mobile_ads`-
+  Integration durch einen echten Build zu verifizieren. **Offene Spec-/PO-Klärung, die nicht
+  eigenständig entschieden wird:** §18 widerspricht §14 beim genauen Ad-Format ("Banner oder
+  Interstitial nach 10 Swipes" statt des in §14 beschriebenen skippable Video-Ads) - welches
+  Format tatsächlich umgesetzt wird, ist damit ungeklärt. Ebenfalls nicht spezifiziert und nicht
+  eigenständig festzulegen: Consent-/Datenschutz-Lösung für Werbung (z. B. Google UMP/GDPR).
 - **Filmabend-Abstimmung/RSVP/Zusagen** (§21 nennt nur die Abstimmung selbst, kein separates
   Teilnahme-Zusagen-Konzept) - bleibt außerhalb des Umfangs von §21.
 - **GIFs im Chat** (§11 nennt "GIFs" als Chat-Funktion, §17.4 kennt dafür nur den Enum-Wert
