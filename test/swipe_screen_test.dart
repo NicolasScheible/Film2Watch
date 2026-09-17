@@ -8,6 +8,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// `SwipeScreen` liest die Gruppenliste über `myGroupsProvider`, das jetzt
+/// den serverseitig gepflegten User-Group-Index (`users/{uid}/groups/{id}`,
+/// siehe README "Architekturentscheidung") liest - `fake_cloud_firestore`
+/// führt den dafür zuständigen Cloud-Function-Trigger nicht aus, daher hier
+/// direkt nachgebildet.
+Future<void> _seedUserGroupIndex(FakeFirebaseFirestore firestore, String uid, String groupId) {
+  return firestore.collection('users').doc(uid).collection('groups').doc(groupId).set({
+    'groupId': groupId,
+  });
+}
+
 void main() {
   group('SwipeScreen (zentraler Einstieg)', () {
     testWidgets('zeigt einen ehrlichen Empty State, wenn der Nutzer in keiner Gruppe ist',
@@ -40,6 +51,7 @@ void main() {
         signedIn: true,
       );
       final group = await GroupRepository(firestore).createGroup(name: 'Filmabend', creatorUid: 'alice');
+      await _seedUserGroupIndex(firestore, 'alice', group.id);
 
       await tester.pumpWidget(
         ProviderScope(
@@ -68,8 +80,11 @@ void main() {
         mockUser: MockUser(uid: 'alice', email: 'alice@film2watch.app'),
         signedIn: true,
       );
-      await GroupRepository(firestore).createGroup(name: 'Freitag Filmabend', creatorUid: 'alice');
-      await GroupRepository(firestore).createGroup(name: 'WG-Kino', creatorUid: 'alice');
+      final groupA =
+          await GroupRepository(firestore).createGroup(name: 'Freitag Filmabend', creatorUid: 'alice');
+      final groupB = await GroupRepository(firestore).createGroup(name: 'WG-Kino', creatorUid: 'alice');
+      await _seedUserGroupIndex(firestore, 'alice', groupA.id);
+      await _seedUserGroupIndex(firestore, 'alice', groupB.id);
 
       await tester.pumpWidget(
         ProviderScope(

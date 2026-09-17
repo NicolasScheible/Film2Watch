@@ -54,6 +54,17 @@ Future<ProviderContainer> _readyContainer({
   return container;
 }
 
+/// `ShareMovieDialog` liest die Gruppenliste über `myGroupsProvider`, das
+/// jetzt den serverseitig gepflegten User-Group-Index
+/// (`users/{uid}/groups/{id}`, siehe README "Architekturentscheidung") liest -
+/// `fake_cloud_firestore` führt den dafür zuständigen Cloud-Function-Trigger
+/// nicht aus, daher hier direkt nachgebildet.
+Future<void> _seedUserGroupIndex(FakeFirebaseFirestore firestore, String uid, String groupId) {
+  return firestore.collection('users').doc(uid).collection('groups').doc(groupId).set({
+    'groupId': groupId,
+  });
+}
+
 void main() {
   group('MovieDetailScreen - Filmkarten teilen (§11)', () {
     late FakeFirebaseFirestore firestore;
@@ -68,7 +79,8 @@ void main() {
     });
 
     testWidgets('Teilen-Button öffnet einen Dialog mit den eigenen Gruppen', (tester) async {
-      await GroupRepository(firestore).createGroup(name: 'Filmabend', creatorUid: 'alice');
+      final group = await GroupRepository(firestore).createGroup(name: 'Filmabend', creatorUid: 'alice');
+      await _seedUserGroupIndex(firestore, 'alice', group.id);
 
       final container = await _readyContainer(firestore: firestore, auth: auth);
       addTearDown(container.dispose);
@@ -93,6 +105,7 @@ void main() {
         (tester) async {
       final group =
           await GroupRepository(firestore).createGroup(name: 'Filmabend', creatorUid: 'alice');
+      await _seedUserGroupIndex(firestore, 'alice', group.id);
 
       final container = await _readyContainer(firestore: firestore, auth: auth);
       addTearDown(container.dispose);

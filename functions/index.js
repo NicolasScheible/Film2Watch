@@ -15,6 +15,7 @@ const { notifyMoviePollResolved } = require('./notifyMoviePollResolved');
 const { resolveDuePolls } = require('./moviePollEngine');
 const { sendDueMovieNightReminders } = require('./movieNightReminderEngine');
 const { applyMembershipCountDelta } = require('./groupMembershipCount');
+const { applyUserGroupIndexEntry } = require('./userGroupIndex');
 
 admin.initializeApp();
 
@@ -119,11 +120,16 @@ exports.onFriendRequestCreated = functions.firestore
  * Hält §15s Free-Gruppen-Limit (max. 3, unbegrenzt für Premium) serverseitig
  * durchsetzbar: pflegt `group_membership_counts/{uid}.count` (siehe
  * `groupMembershipCount.js`), den die Firestore Rule `groupMembershipCount()`
- * beim Anlegen einer neuen Mitgliedschaft liest. Reagiert ausschließlich auf
- * tatsächliches Beitreten/Verlassen (Dokument entsteht/verschwindet) - eine
- * reine Rollenänderung (z. B. Admin-Übertragung, `update` bleibt
- * Anlegen/Löschen unverändert) ändert die Anzahl der Gruppen eines Users
- * nicht und wird daher bewusst ignoriert.
+ * beim Anlegen einer neuen Mitgliedschaft liest. Pflegt außerdem den
+ * User-Group-Index `users/{uid}/groups/{groupId}` (siehe `userGroupIndex.js`)
+ * - die PO-Entscheidung war bewusst, beide Strukturen über denselben,
+ * bereits bestehenden Trigger zu pflegen, statt eine zweite, parallele
+ * Trigger-Logik auf demselben Dokumentpfad einzuführen. Reagiert
+ * ausschließlich auf tatsächliches Beitreten/Verlassen (Dokument
+ * entsteht/verschwindet) - eine reine Rollenänderung (z. B.
+ * Admin-Übertragung, `update` bleibt Anlegen/Löschen unverändert) ändert
+ * weder die Anzahl der Gruppen eines Users noch seine Mitgliedschaft selbst
+ * und wird daher bewusst ignoriert.
  */
 exports.onGroupMemberWritten = functions.firestore
   .document('groups/{groupId}/members/{memberUid}')
@@ -132,16 +138,34 @@ exports.onGroupMemberWritten = functions.firestore
     const existsAfter = change.after.exists;
     if (existedBefore === existsAfter) return null;
 
+    const firestore = admin.firestore();
+    const { groupId, memberUid } = context.params;
+
     try {
       await applyMembershipCountDelta({
-        firestore: admin.firestore(),
-        uid: context.params.memberUid,
+        firestore,
+        uid: memberUid,
         delta: existsAfter ? 1 : -1,
       });
     } catch (error) {
       functions.logger.error('Gruppen-Mitgliedschaftszähler fehlgeschlagen', {
-        groupId: context.params.groupId,
-        memberUid: context.params.memberUid,
+        groupId,
+        memberUid,
+        error: error.message,
+      });
+    }
+
+    try {
+      await applyUserGroupIndexEntry({
+        firestore,
+        uid: memberUid,
+        groupId,
+        exists: existsAfter,
+      });
+    } catch (error) {
+      functions.logger.error('User-Group-Index fehlgeschlagen', {
+        groupId,
+        memberUid,
         error: error.message,
       });
     }

@@ -11,6 +11,16 @@ import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// `myGroupsProvider` liest den serverseitig gepflegten User-Group-Index
+/// (`users/{uid}/groups/{groupId}`, siehe README "Architekturentscheidung") -
+/// `fake_cloud_firestore` führt den dafür zuständigen Cloud-Function-Trigger
+/// nicht aus, daher hier direkt nachgebildet.
+Future<void> _seedUserGroupIndex(FakeFirebaseFirestore firestore, String uid, String groupId) {
+  return firestore.collection('users').doc(uid).collection('groups').doc(groupId).set({
+    'groupId': groupId,
+  });
+}
+
 Future<void> _seedMatch(FakeFirebaseFirestore firestore, String groupId, int movieId) {
   return firestore.collection('groups').doc(groupId).collection('matches').doc('$movieId').set({
     'movie_id': movieId,
@@ -90,6 +100,8 @@ void main() {
       final swipeRepository = SwipeRepository(firestore);
       final groupA = await groupRepository.createGroup(name: 'Gruppe A', creatorUid: 'alice');
       final groupB = await groupRepository.createGroup(name: 'Gruppe B', creatorUid: 'alice');
+      await _seedUserGroupIndex(firestore, 'alice', groupA.id);
+      await _seedUserGroupIndex(firestore, 'alice', groupB.id);
 
       await swipeRepository.setSwipe(
         groupId: groupA.id,
@@ -132,6 +144,8 @@ void main() {
       final groupRepository = GroupRepository(firestore);
       final groupA = await groupRepository.createGroup(name: 'Gruppe A', creatorUid: 'alice');
       final groupB = await groupRepository.createGroup(name: 'Gruppe B', creatorUid: 'alice');
+      await _seedUserGroupIndex(firestore, 'alice', groupA.id);
+      await _seedUserGroupIndex(firestore, 'alice', groupB.id);
       await _seedMatch(firestore, groupA.id, 100);
       await _seedMatch(firestore, groupB.id, 200);
 

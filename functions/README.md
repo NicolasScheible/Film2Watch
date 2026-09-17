@@ -74,6 +74,29 @@ desto länger kann die Trigger-Verarbeitung eines einzelnen Firestore-Writes im 
 dauern (gemeinsamer Dispatch über alle Functions). `matchEngine.test.mjs` verwendet daher bewusst
 großzügige Wartezeiten (`assertNoMatchAfterSettling`) statt möglichst knapper Werte.
 
+## Backfill: User-Group-Index (`users/{uid}/groups/{groupId}`)
+
+Einmaliges Skript, kein dauerhaftes Produkt-Feature (siehe README des Repository-Root,
+Abschnitt "Architekturentscheidung"). Der Trigger `onGroupMemberWritten` pflegt den Index nur für
+Mitgliedschaften, die nach seinem Deployment angelegt/gelöscht werden - bereits davor bestehende
+Mitgliedschaften müssen einmalig nachgezogen werden:
+
+```bash
+cd functions
+
+# Gegen den lokalen Emulator (z. B. zum Testen):
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 GCLOUD_PROJECT=<project> \
+  node scripts/backfillUserGroupIndex.js
+
+# Gegen eine echte Firebase-Instanz: GOOGLE_APPLICATION_CREDENTIALS auf einen Service-Account-Key
+# mit Firestore-Zugriff setzen und FIRESTORE_EMULATOR_HOST NICHT setzen. Nur nach ausdrücklicher,
+# separater Freigabe ausführen - das Skript liest/schreibt dann echte Produktionsdaten.
+GOOGLE_APPLICATION_CREDENTIALS=<pfad-zum-key> node scripts/backfillUserGroupIndex.js
+```
+
+Idempotent: ein wiederholter Lauf überschreibt bestehende, korrekte Einträge lediglich mit sich
+selbst und erzeugt keine doppelten oder falschen Daten. Test: `functions/test/backfillUserGroupIndex.test.mjs`.
+
 ## Deployment
 
 ```bash

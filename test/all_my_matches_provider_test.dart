@@ -59,6 +59,17 @@ void main() {
       final groupRepository = GroupRepository(firestore);
       final groupA = await groupRepository.createGroup(name: 'Gruppe A', creatorUid: 'alice');
       final groupB = await groupRepository.createGroup(name: 'Gruppe B', creatorUid: 'alice');
+      // `myGroupsProvider` liest jetzt den serverseitig gepflegten
+      // User-Group-Index (`users/{uid}/groups/{groupId}`, siehe README
+      // "Architekturentscheidung") - `fake_cloud_firestore` führt den dafür
+      // zuständigen Cloud-Function-Trigger nicht aus, daher hier direkt
+      // nachgebildet.
+      await firestore.collection('users').doc('alice').collection('groups').doc(groupA.id).set({
+        'groupId': groupA.id,
+      });
+      await firestore.collection('users').doc('alice').collection('groups').doc(groupB.id).set({
+        'groupId': groupB.id,
+      });
 
       await _seedMatch(firestore, groupA.id, 100, DateTime(2026, 1, 1));
       await _seedMatch(firestore, groupB.id, 200, DateTime(2026, 1, 5));

@@ -217,37 +217,33 @@ Spezifikationen erwähnt werden.
   Freundesliste-Detailansicht nicht separat nennt.
 - Die erste Implementierung (`GroupRepository.watchCommonGroups`) hat versucht, die gemeinsamen
   Gruppen über eine Collection-Group-Query auf `members` (`where('uid', isEqualTo: ...)`) zu
-  bestimmen.
-- Ein Test gegen den echten Firestore-Emulator zeigt: unter den aktuellen Security Rules
-  (`isGroupMember(groupId)`) wird genau diese Query-Form mit `permission-denied` abgelehnt – sowohl
-  für die uid eines Freundes als auch für die eigene uid des anfragenden Users.
-- Dieselbe Query-Form wird bereits von `GroupRepository.watchMyGroups()`/`myGroupCount()`
-  verwendet. Es besteht daher zusätzlich ein separater, vorbestehender technischer Befund bei der
-  bestehenden Gruppenabfrage (siehe eigener Abschnitt unten) – unabhängig von der neuen Funktion.
-- Das Feature bleibt bis zur Architekturentscheidung durch den Produktverantwortlichen **WIP**: UI,
-  Provider und die neuen Rules-Tests sind vorhanden, aber `watchCommonGroups()` liefert unter
-  echten Rules aktuell keine Daten. `firestore.rules` wurde dafür bewusst nicht verändert.
+  bestimmen. Diese Query-Form wird von Firestore als Query grundsätzlich mit `permission-denied`
+  abgelehnt (siehe Architekturentscheidung unten) und wurde durch den User-Group-Index ersetzt.
+- Gemeinsame Gruppen werden jetzt darüber bestimmt, dass für jede eigene, im Index bekannte Gruppe
+  direkt geprüft wird, ob der Freund dort ebenfalls Mitglied ist (`groups/{groupId}/members/{friendUid}`).
+  Vergangene Matches kommen unverändert aus den bereits bestehenden Match-Dokumenten dieser
+  gemeinsamen Gruppen, gefiltert auf `member_uids`.
 
-### Vorbestehender technischer Befund: `watchMyGroups()`/`myGroupCount()`
+### Architekturentscheidung: User-Group-Index `users/{uid}/groups/{groupId}`
 
-- `GroupRepository.watchMyGroups(uid)` und `GroupRepository.myGroupCount(uid)` verwenden eine
-  Collection-Group-Query auf `members` mit `where('uid', isEqualTo: uid)`.
-- Unter den aktuell geprüften Firestore Rules konnte diese Collection-Group-Query im Emulator
-  nicht ausgeführt werden (`permission-denied`) – geprüft sowohl mit einer fremden uid als auch mit
-  der eigenen uid des anfragenden Users, exakt derselben Query-Form wie in `watchMyGroups()`.
-- Beide Methoden werden von produktiven Codepfaden verwendet (u. a. `myGroupsProvider`, damit
-  `groups_screen.dart`, `swipe_screen.dart`, `chat_screen.dart`, `share_movie_dialog.dart`,
-  `allMyMatchesProvider`, sowie der clientseitige Free-Gruppen-Limit-Check in `group_service.dart`).
-  Es gibt keinen alternativen produktiven Codepfad, der dieselbe Information sicher anders
-  bereitstellt.
-- Es wurde **nicht** abschließend verifiziert, ob dies in der realen, deployten App tatsächlich zu
-  einem Fehler führt (z. B. abhängig von SDK-Version/Client-Cache-Verhalten) – es ist ausschließlich
-  gegen den lokalen Firestore-Emulator mit der aktuellen `firestore.rules`-Datei nachgewiesen. Es
-  gibt keine CI, die Rules-Tests automatisch ausführt, daher wäre ein solcher Fehler bisher nicht
-  automatisch aufgefallen.
-- Wird als eigenständiger technischer Befund/Debt behandelt, noch nicht behoben. Nächster Schritt
-  ist eine Architekturentscheidung (siehe Entscheidungsbericht in der Session), keine sofortige
-  Änderung an `firestore.rules` oder am Datenmodell.
+- PO-Entscheidung: gemeinsame Gruppen und die allgemeine Gruppenzugehörigkeit werden über einen
+  serverseitig gepflegten, rein technischen Index `users/{uid}/groups/{groupId}` bestimmt statt
+  über eine Collection-Group-Query auf `members` (siehe `functions/userGroupIndex.js`).
+- Der Index wird ausschließlich vom bereits bestehenden Cloud-Function-Trigger
+  `onGroupMemberWritten` gepflegt (derselbe Trigger, der auch `group_membership_counts` aktualisiert)
+  - kein Client, auch nicht der Owner selbst, darf ihn schreiben (`firestore.rules`:
+  `users/{userId}/groups/{groupId}`, `allow read: if request.auth.uid == userId`,
+  `allow create, update, delete: if false`).
+- Damit ist zugleich der zuvor separat dokumentierte Bestandsbefund bei
+  `GroupRepository.watchMyGroups()`/`myGroupCount()` behoben: beide lesen jetzt ebenfalls den
+  User-Group-Index statt der nicht funktionierenden Collection-Group-Query.
+- Einmaliges Backfill für bereits vor diesem Fix bestehende Mitgliedschaften:
+  `functions/scripts/backfillUserGroupIndex.js` (siehe `functions/README.md`, Abschnitt
+  "Backfill") - nicht automatisch gegen eine produktive Firebase-Instanz ausgeführt.
+- Verwandter, separater Befund (nicht Teil dieses Fixes): `SwipeRepository.getAllSwipesForUser()`
+  (Grundlage der §15-Detailstatistik) verwendet dieselbe problematische Query-Form
+  (`collectionGroup('swipes').where('uid', ...)`) und ist nach demselben Muster betroffen - noch
+  nicht behoben.
 
 ## Datenmodell (Gruppen)
 

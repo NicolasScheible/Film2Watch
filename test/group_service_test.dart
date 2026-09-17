@@ -13,6 +13,47 @@ import 'package:film2watch/utils/group_exceptions.dart';
 import 'package:firebase_storage_mocks/firebase_storage_mocks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// Simuliert den Cloud-Function-Trigger `onGroupMemberWritten`
+/// (`functions/userGroupIndex.js`), der in Produktion den User-Group-Index
+/// `users/{uid}/groups/{groupId}` serverseitig pflegt - `fake_cloud_firestore`
+/// führt keine Cloud Functions aus, daher muss dieser rein technische Index
+/// in Tests, die `myGroupCount`/`watchMyGroups`/`watchCommonGroups` prüfen,
+/// nach jeder Mitgliedschaftsänderung manuell nachgezogen werden. Spiegelt
+/// exakt den aktuellen `members`-Stand (auch verlassene Gruppen werden
+/// dabei korrekt aus dem Index entfernt).
+Future<void> _syncUserGroupIndex(FakeFirebaseFirestore firestore) async {
+  final groups = await firestore.collection('groups').get();
+  final actualByUid = <String, Set<String>>{};
+  for (final groupDoc in groups.docs) {
+    final members = await groupDoc.reference.collection('members').get();
+    for (final memberDoc in members.docs) {
+      actualByUid.putIfAbsent(memberDoc.id, () => {}).add(groupDoc.id);
+    }
+  }
+
+  final usersWithIndex = await firestore.collection('users').get();
+  for (final userDoc in usersWithIndex.docs) {
+    final existing = await userDoc.reference.collection('groups').get();
+    final actualGroupIds = actualByUid[userDoc.id] ?? {};
+    for (final entry in existing.docs) {
+      if (!actualGroupIds.contains(entry.id)) {
+        await entry.reference.delete();
+      }
+    }
+  }
+
+  for (final entry in actualByUid.entries) {
+    for (final groupId in entry.value) {
+      await firestore
+          .collection('users')
+          .doc(entry.key)
+          .collection('groups')
+          .doc(groupId)
+          .set({'groupId': groupId});
+    }
+  }
+}
+
 void main() {
   late FakeFirebaseFirestore firestore;
   late UserRepository userRepository;
@@ -234,10 +275,17 @@ void main() {
   });
 
   group('Free-Gruppen-Limit (§15)', () {
+    // Jede dieser Tests hängt von `myGroupCount` ab, das jetzt den
+    // serverseitig gepflegten User-Group-Index liest (siehe
+    // `_syncUserGroupIndex` oben) - der Sync muss deshalb nach JEDER
+    // Mitgliedschaftsänderung erfolgen, nicht nur vor der finalen Assertion:
+    // auch der interne Limit-Check in `groupService.createGroup`/
+    // `acceptInvitation` selbst liest bereits `myGroupCount`.
     test('ein Free-User kann genau 3 Gruppen anlegen, die 4. wird abgelehnt', () async {
       await groupService.createGroup(name: 'Gruppe 1', creatorUid: 'alice');
       await groupService.createGroup(name: 'Gruppe 2', creatorUid: 'alice');
       await groupService.createGroup(name: 'Gruppe 3', creatorUid: 'alice');
+      await _syncUserGroupIndex(firestore);
       expect(await groupRepository.myGroupCount('alice'), 3);
 
       expect(
@@ -248,6 +296,7 @@ void main() {
       // erfolgreiche Mitgliedschaft zurückbleiben - der Limit-Check greift
       // schon vor dem eigentlichen Anlegen, es entsteht also gar kein
       // Gruppendokument.
+      await _syncUserGroupIndex(firestore);
       expect(await groupRepository.myGroupCount('alice'), 3);
     });
 
@@ -261,10 +310,12 @@ void main() {
       final group2 = await groupService.createGroup(name: 'Gruppe 2', creatorUid: 'alice');
       final group3 = await groupService.createGroup(name: 'Gruppe 3', creatorUid: 'alice');
       final group4 = await groupService.createGroup(name: 'Gruppe 4', creatorUid: 'alice');
+      await _syncUserGroupIndex(firestore);
 
       for (final group in [group1, group2, group3]) {
         await groupService.inviteFriend(groupId: group.id, inviterUid: 'alice', inviteeUid: 'bob');
         await groupService.acceptInvitation(groupId: group.id, inviteeUid: 'bob');
+        await _syncUserGroupIndex(firestore);
       }
       expect(await groupRepository.myGroupCount('bob'), 3);
 
@@ -287,6 +338,7 @@ void main() {
       await groupService.createGroup(name: 'Gruppe 2', creatorUid: 'alice');
       await groupService.createGroup(name: 'Gruppe 3', creatorUid: 'alice');
       await groupService.createGroup(name: 'Gruppe 4', creatorUid: 'alice');
+      await _syncUserGroupIndex(firestore);
 
       expect(await groupRepository.myGroupCount('alice'), 4);
     });
@@ -301,10 +353,12 @@ void main() {
       final group3 = await groupService.createGroup(name: 'Gruppe 3', creatorUid: 'alice');
       final group4 = await groupService.createGroup(name: 'Gruppe 4', creatorUid: 'alice');
       await firestore.collection('premium_status').doc('bob').set({'is_premium': true});
+      await _syncUserGroupIndex(firestore);
 
       for (final group in [group1, group2, group3, group4]) {
         await groupService.inviteFriend(groupId: group.id, inviterUid: 'alice', inviteeUid: 'bob');
         await groupService.acceptInvitation(groupId: group.id, inviteeUid: 'bob');
+        await _syncUserGroupIndex(firestore);
       }
 
       expect(await groupRepository.myGroupCount('bob'), 4);
@@ -316,6 +370,7 @@ void main() {
       await groupService.createGroup(name: 'Gruppe 3', creatorUid: 'alice');
 
       await groupService.leaveGroup(groupId: group1.id, uid: 'alice');
+      await _syncUserGroupIndex(firestore);
       expect(await groupRepository.myGroupCount('alice'), 2);
 
       final group4 = await groupService.createGroup(name: 'Gruppe 4', creatorUid: 'alice');

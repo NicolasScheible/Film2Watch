@@ -20,6 +20,20 @@ class GroupRepository {
   CollectionReference<Map<String, dynamic>> get _invitations =>
       _firestore.collection('group_invitations');
 
+  /// Rein technischer, ausschließlich serverseitig gepflegter Index
+  /// `users/{uid}/groups/{groupId}` (PO-Entscheidung, siehe README
+  /// "Architekturentscheidung") - keine neue fachliche Datenquelle, sondern
+  /// ein sicherer Ersatz für die zuvor genutzte
+  /// `collectionGroup('members').where('uid', ...)`-Query, die als Query
+  /// (anders als ein `get()` auf einen vollständig bekannten Dokumentpfad)
+  /// von den Firestore Security Rules nicht beweisbar ist und daher
+  /// pauschal mit `permission-denied` abgelehnt wird. Gepflegt vom
+  /// Cloud-Function-Trigger `onGroupMemberWritten`
+  /// (`functions/userGroupIndex.js`); der Client hat hierauf ausschließlich
+  /// Lesezugriff auf den eigenen Index.
+  CollectionReference<Map<String, dynamic>> _userGroupIndex(String uid) =>
+      _firestore.collection('users').doc(uid).collection('groups');
+
   String _invitationId(String groupId, String inviteeUid) => '${groupId}_$inviteeUid';
 
   // ---- Gruppen ----
@@ -62,52 +76,50 @@ class GroupRepository {
     return _groups.doc(groupId).snapshots().map((s) => s.exists ? Group.fromFirestore(s) : null);
   }
 
-  /// Alle Gruppen, in denen [uid] Mitglied ist (Collection-Group-Query über
-  /// `members`, benötigt den in `firestore.indexes.json` deklarierten Index).
+  /// Alle Gruppen, in denen [uid] Mitglied ist - liest die eigenen groupIds
+  /// aus dem sicheren [_userGroupIndex] und lädt anschließend die
+  /// tatsächlichen Gruppendokumente. Ersetzt die zuvor genutzte, unter den
+  /// echten Firestore Security Rules nicht funktionsfähige
+  /// Collection-Group-Query (siehe README, "Vorbestehender technischer
+  /// Befund: watchMyGroups()/myGroupCount()").
   Stream<List<Group>> watchMyGroups(String uid) {
-    return _firestore
-        .collectionGroup('members')
-        .where('uid', isEqualTo: uid)
-        .snapshots()
-        .asyncMap((snapshot) async {
-      final groupIds = snapshot.docs.map((doc) => doc.reference.parent.parent!.id).toSet();
+    return _userGroupIndex(uid).snapshots().asyncMap((snapshot) async {
+      final groupIds = snapshot.docs.map((doc) => doc.id).toSet();
+      if (groupIds.isEmpty) return const <Group>[];
       final groupDocs = await Future.wait(groupIds.map((id) => _groups.doc(id).get()));
       return groupDocs.where((doc) => doc.exists).map(Group.fromFirestore).toList();
     });
   }
 
   /// Gruppen, in denen sowohl [currentUid] als auch [friendUid] Mitglied
-  /// sind (§4: "gemeinsame Gruppen" im Freundes-Profil) - die Schnittmenge
-  /// zweier Mitgliedschafts-Queries, exakt wie bei [watchMyGroups], hier
-  /// zusätzlich client-seitig geschnitten. Firestore Rules (`isGroupMember`
-  /// prüft immer die Mitgliedschaft des *aufrufenden* Users, nie die des
-  /// abgefragten `uid`-Feldwerts) lassen eine reine
-  /// `members.where('uid', isEqualTo: friendUid)`-Query ohnehin nur
-  /// Ergebnisse aus Gruppen zurückgeben, in denen [currentUid] selbst
-  /// Mitglied ist - die explizite Schnittmenge hier ist eine zusätzliche,
-  /// unabhängig von den Rules korrekte Absicherung (u. a. damit dieses
-  /// Verhalten auch mit `fake_cloud_firestore`, das keine Rules erzwingt,
-  /// sinnvoll testbar ist).
+  /// sind (§4: "gemeinsame Gruppen" im Freundes-Profil). Liest ausschließlich
+  /// den eigenen [_userGroupIndex] von [currentUid] (niemals den von
+  /// [friendUid] - dieser ist für [currentUid] auch gar nicht lesbar) und
+  /// prüft für jede der eigenen, bereits bekannten Gruppen per direktem
+  /// `get()` auf `groups/{groupId}/members/{friendUid}`, ob der Freund dort
+  /// ebenfalls Mitglied ist. Das ist - anders als die zuvor genutzte
+  /// Collection-Group-Query - ein vollständig bekannter Dokumentpfad und
+  /// damit unter `isGroupMember(groupId)` beweisbar: der Aufrufer ist für
+  /// genau dieses [groupId] bereits nachweislich selbst Mitglied (sonst
+  /// stünde es nicht im eigenen Index), die Rule ist also für jeden dieser
+  /// Reads trivial erfüllt. [currentUid] kann auf diesem Weg strukturell
+  /// niemals eine Gruppe erfahren, in der nur [friendUid] Mitglied ist -
+  /// die Kandidaten-Liste stammt ausschließlich aus dem eigenen Index.
   Stream<List<Group>> watchCommonGroups({
     required String currentUid,
     required String friendUid,
   }) {
-    return _firestore
-        .collectionGroup('members')
-        .where('uid', isEqualTo: friendUid)
-        .snapshots()
-        .asyncMap((friendSnapshot) async {
-      final friendGroupIds =
-          friendSnapshot.docs.map((doc) => doc.reference.parent.parent!.id).toSet();
-      if (friendGroupIds.isEmpty) return const <Group>[];
+    return _userGroupIndex(currentUid).snapshots().asyncMap((snapshot) async {
+      final myGroupIds = snapshot.docs.map((doc) => doc.id).toList();
+      if (myGroupIds.isEmpty) return const <Group>[];
 
-      final mySnapshot = await _firestore
-          .collectionGroup('members')
-          .where('uid', isEqualTo: currentUid)
-          .get();
-      final myGroupIds = mySnapshot.docs.map((doc) => doc.reference.parent.parent!.id).toSet();
-
-      final commonGroupIds = friendGroupIds.intersection(myGroupIds);
+      final memberChecks = await Future.wait(
+        myGroupIds.map((id) => _members(id).doc(friendUid).get()),
+      );
+      final commonGroupIds = [
+        for (var i = 0; i < myGroupIds.length; i++)
+          if (memberChecks[i].exists) myGroupIds[i],
+      ];
       if (commonGroupIds.isEmpty) return const <Group>[];
 
       final groupDocs = await Future.wait(commonGroupIds.map((id) => _groups.doc(id).get()));
@@ -116,20 +128,18 @@ class GroupRepository {
   }
 
   /// Anzahl der Gruppen, in denen [uid] aktuell Mitglied ist (§15:
-  /// Free-Gruppen-Limit) - live per Aggregations-Query auf dieselbe
-  /// Collection-Group wie [watchMyGroups], daher ohne Verzögerung exakt (im
+  /// Free-Gruppen-Limit) - live per Aggregations-Query auf denselben
+  /// [_userGroupIndex] wie [watchMyGroups], daher ohne Verzögerung exakt (im
   /// Gegensatz zum serverseitig für die Firestore Rules gepflegten,
-  /// asynchronen Zähler `group_membership_counts/{uid}`). Nur für eine
+  /// asynchronen Zähler `group_membership_counts/{uid}`, der unabhängig
+  /// davon für einen eigenständigen Zweck - die serverseitige
+  /// Limit-Durchsetzung selbst - bestehen bleibt). Nur für eine
   /// clientseitige Vorab-Prüfung mit sofortigem, verständlichem
   /// Fehlertext gedacht - die eigentliche, sicherheitsrelevante Durchsetzung
   /// bleibt unabhängig davon immer serverseitig (Firestore Rules
   /// `groupMembershipCount()`).
   Future<int> myGroupCount(String uid) async {
-    final result = await _firestore
-        .collectionGroup('members')
-        .where('uid', isEqualTo: uid)
-        .count()
-        .get();
+    final result = await _userGroupIndex(uid).count().get();
     return result.count ?? 0;
   }
 

@@ -101,6 +101,24 @@ service cloud.firestore {
 
         allow delete: if isSignedIn() && request.auth.uid == userId;
       }
+
+      // User-Group-Index (PO-Entscheidung: Variante B der Architektur-
+      // Analyse zu §4 "gemeinsame Gruppen"). Rein technische Lesestruktur,
+      // keine neue fachliche Datenquelle - die eigentliche Gruppe bleibt
+      // `groups/{groupId}`, die eigentliche Mitgliedschaft bleibt
+      // `groups/{groupId}/members/{uid}`. Ausschließlich serverseitig
+      // gepflegt (Cloud-Function-Trigger `onGroupMemberWritten`, siehe
+      // `functions/userGroupIndex.js`, Admin-SDK umgeht Rules) - kein Client
+      // darf hier jemals selbst schreiben, sonst könnte er sich selbst
+      // Zugriff auf fremde Gruppen erschleichen, ohne tatsächlich Mitglied
+      // zu sein. Lesbar ausschließlich für den eigenen User: ersetzt damit
+      // die zuvor genutzte `collectionGroup('members').where('uid', ...)`-
+      // Query, die als Query (anders als dieser fest-pfadige, direkt
+      // beweisbare Zugriff) von Firestore nicht zugelassen wird.
+      match /groups/{groupId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow create, update, delete: if false;
+      }
     }
 
     // Personalisierter Boost-Zustand (§7/§18/§17.4 der Master-Spezifikation:

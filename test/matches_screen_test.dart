@@ -15,6 +15,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+/// `MatchesScreen` liest die Gruppenliste über `allMyMatchesProvider`/
+/// `myGroupsProvider`, das jetzt den serverseitig gepflegten
+/// User-Group-Index (`users/{uid}/groups/{id}`, siehe README
+/// "Architekturentscheidung") liest - `fake_cloud_firestore` führt den dafür
+/// zuständigen Cloud-Function-Trigger nicht aus, daher hier direkt
+/// nachgebildet.
+Future<void> _seedUserGroupIndex(FakeFirebaseFirestore firestore, String uid, String groupId) {
+  return firestore.collection('users').doc(uid).collection('groups').doc(groupId).set({
+    'groupId': groupId,
+  });
+}
+
 Map<String, dynamic> _movieJson(int id, String title) => {
       'id': id,
       'title': title,
@@ -90,6 +102,8 @@ void main() {
       final groupRepository = GroupRepository(firestore);
       final groupA = await groupRepository.createGroup(name: 'Filmclub', creatorUid: 'alice');
       final groupB = await groupRepository.createGroup(name: 'WG-Abend', creatorUid: 'alice');
+      await _seedUserGroupIndex(firestore, 'alice', groupA.id);
+      await _seedUserGroupIndex(firestore, 'alice', groupB.id);
       await _seedMatch(firestore, groupA.id, 100, DateTime(2026, 1, 1));
       await _seedMatch(firestore, groupB.id, 200, DateTime(2026, 1, 5));
 
@@ -107,6 +121,7 @@ void main() {
     testWidgets('reagiert in Echtzeit auf ein neu entstandenes Match', (tester) async {
       final groupRepository = GroupRepository(firestore);
       final group = await groupRepository.createGroup(name: 'Filmclub', creatorUid: 'alice');
+      await _seedUserGroupIndex(firestore, 'alice', group.id);
 
       await tester.pumpWidget(wrap(_tmdbService({300: 'Frischer Match'})));
       await tester.pumpAndSettle();
@@ -121,6 +136,7 @@ void main() {
     testWidgets('TMDB-Fehler für einen Match blockiert nicht die restliche Liste', (tester) async {
       final groupRepository = GroupRepository(firestore);
       final group = await groupRepository.createGroup(name: 'Filmclub', creatorUid: 'alice');
+      await _seedUserGroupIndex(firestore, 'alice', group.id);
       await _seedMatch(firestore, group.id, 400, DateTime(2026, 1, 1));
       await _seedMatch(firestore, group.id, 401, DateTime(2026, 1, 2));
 
@@ -135,6 +151,7 @@ void main() {
     testWidgets('Antippen eines Matches öffnet die echten Filmdetails', (tester) async {
       final groupRepository = GroupRepository(firestore);
       final group = await groupRepository.createGroup(name: 'Filmclub', creatorUid: 'alice');
+      await _seedUserGroupIndex(firestore, 'alice', group.id);
       await _seedMatch(firestore, group.id, 550, DateTime(2026, 1, 1));
 
       await tester.pumpWidget(wrap(_tmdbService({550: 'Fight Club'})));

@@ -142,6 +142,18 @@ before(async () => {
       role: 'member',
       joined_at: now(),
     });
+
+    // User-Group-Index (PO-Entscheidung, Variante B): simuliert direkt das
+    // Ergebnis des Cloud-Function-Triggers `onGroupMemberWritten`
+    // (`functions/userGroupIndex.js`), ohne ihn selbst auszuführen - genau
+    // wie `group_membership_counts` oben das Ergebnis von
+    // `groupMembershipCount.js` simuliert. Diese Rules-Tests prüfen
+    // ausschließlich die Zugriffsrechte auf den Index, nicht seine Pflege
+    // (dafür: `functions/test/userGroupIndex.test.mjs`).
+    await db.doc('users/heidi/groups/heidi-ivan-shared').set({ groupId: 'heidi-ivan-shared' });
+    await db.doc('users/ivan/groups/heidi-ivan-shared').set({ groupId: 'heidi-ivan-shared' });
+    await db.doc('users/ivan/groups/ivan-judy-only').set({ groupId: 'ivan-judy-only' });
+    await db.doc('users/judy/groups/ivan-judy-only').set({ groupId: 'ivan-judy-only' });
   });
 });
 
@@ -291,40 +303,67 @@ describe('§15-Gruppen-Limit: groups/{groupId}/members/{uid} create', () => {
   });
 });
 
-// Bekannter, dokumentierter Zustand (siehe README, Abschnitt "Vorbestehender technischer
-// Befund: watchMyGroups()/myGroupCount()" sowie den Architektur-Entscheidungsbericht dieser
-// Session): Firestore kann eine Collection-Group-Query, deren Regel (isGroupMember(groupId))
-// einen exists()-Check auf einem erst pro Treffer bekannten Pfadsegment (groupId) erfordert,
-// beim Query-Zeitpunkt nicht als sicher beweisen und lehnt sie deshalb komplett mit
-// permission-denied ab - unabhängig davon, ob die Daten die Regel im Einzelfall erfüllt hätten.
-// Beide Tests hier schlagen deshalb aktuell erwartungsgemäß fehl (nicht an den Assertions,
-// sondern schon am `.get()`-Aufruf selbst). Bewusst NICHT auf assertFails() umgeschrieben und
-// NICHT gelöscht: Sie dokumentieren das fachlich gewünschte Zielverhalten, bis eine
-// Architekturentscheidung (neue Query-Form/Datenquelle) getroffen und umgesetzt ist.
-describe('§4: gemeinsame Gruppen - Cross-User Collection-Group-Query auf members', () => {
-  it('liefert bei einer Query nach der uid eines Freundes nur die tatsächlich gemeinsame Gruppe, nie dessen fremde Gruppe', async () => {
+// PO-Entscheidung (Variante B der Architektur-Analyse): "gemeinsame Gruppen"
+// und die allgemeine Gruppenzugehörigkeit werden nicht mehr über eine
+// `collectionGroup('members').where('uid', ...)`-Query bestimmt (siehe
+// README, Abschnitt "Vorbestehender technischer Befund" - diese Query wird
+// von Firestore als Query pauschal mit permission-denied abgelehnt), sondern
+// über den serverseitig gepflegten Index `users/{uid}/groups/{groupId}`.
+// Diese Tests prüfen exakt das dafür nötige Sicherheitsmodell: nur der
+// eigene Owner darf seinen eigenen Index lesen, niemals den eines anderen
+// Users, und kein Client darf den Index selbst schreiben.
+describe('§4: User-Group-Index users/{uid}/groups/{groupId}', () => {
+  it('erlaubt es einem User, den eigenen Index-Eintrag zu lesen', async () => {
     const db = testEnv.authenticatedContext('heidi').firestore();
-    const snapshot = await db.collectionGroup('members').where('uid', '==', 'ivan').get();
-
-    const groupIds = snapshot.docs.map((doc) => doc.ref.parent.parent.id);
-    if (groupIds.includes('ivan-judy-only')) {
-      throw new Error(
-        'heidi konnte über die members-Collection-Group-Query eine fremde Gruppe von ivan sehen (Privacy-Leck).',
-      );
-    }
-    if (!groupIds.includes('heidi-ivan-shared')) {
-      throw new Error('Die tatsächlich gemeinsame Gruppe wurde nicht gefunden.');
-    }
+    await assertSucceeds(db.doc('users/heidi/groups/heidi-ivan-shared').get());
   });
 
-  it('liefert für einen völlig fremden User (keine gemeinsame Gruppe) keine Treffer', async () => {
+  it('verbietet es einem User, den Index-Eintrag eines anderen Users zu lesen', async () => {
     const db = testEnv.authenticatedContext('heidi').firestore();
-    const snapshot = await db.collectionGroup('members').where('uid', '==', 'judy').get();
+    await assertFails(db.doc('users/ivan/groups/heidi-ivan-shared').get());
+  });
 
-    const groupIds = snapshot.docs.map((doc) => doc.ref.parent.parent.id);
-    if (groupIds.length !== 0) {
-      throw new Error(`heidi hat unerwartet Treffer für judy erhalten: ${groupIds.join(', ')}`);
-    }
+  it('verbietet es einem User, über den eigenen Index-Pfad eine fremde, nicht gemeinsame Gruppe des Freundes zu lesen', async () => {
+    // heidi darf ivans Index nicht lesen und kann daher strukturell nie
+    // erfahren, dass "ivan-judy-only" existiert - unabhängig davon, welchen
+    // Pfad sie ausprobiert.
+    const db = testEnv.authenticatedContext('heidi').firestore();
+    await assertFails(db.doc('users/ivan/groups/ivan-judy-only').get());
+  });
+
+  it('verbietet es dem Client, einen Index-Eintrag selbst anzulegen', async () => {
+    const db = testEnv.authenticatedContext('heidi').firestore();
+    await assertFails(db.doc('users/heidi/groups/faked-group').set({ groupId: 'faked-group' }));
+  });
+
+  it('verbietet es dem Client, einen Index-Eintrag selbst zu ändern', async () => {
+    const db = testEnv.authenticatedContext('heidi').firestore();
+    await assertFails(
+      db.doc('users/heidi/groups/heidi-ivan-shared').update({ groupId: 'anders' }),
+    );
+  });
+
+  it('verbietet es dem Client, einen Index-Eintrag selbst zu löschen', async () => {
+    const db = testEnv.authenticatedContext('heidi').firestore();
+    await assertFails(db.doc('users/heidi/groups/heidi-ivan-shared').delete());
+  });
+
+  it('lässt die bestehende members-Regel unverändert: ein Nutzer darf ein members-Dokument nur lesen, wenn er selbst Mitglied dieser Gruppe ist', async () => {
+    // Regressionstest zur PO-Vorgabe "keine Änderung an der bestehenden
+    // Gruppen-/Member-Rule, die deren Sicherheit abschwächt": heidi ist
+    // NICHT Mitglied von "ivan-judy-only" und darf dort weiterhin nichts
+    // lesen, obwohl sie über ihren eigenen Index prinzipiell weiß, dass sie
+    // mit ivan in "heidi-ivan-shared" gemeinsam ist.
+    const db = testEnv.authenticatedContext('heidi').firestore();
+    await assertFails(db.doc('groups/ivan-judy-only/members/ivan').get());
+  });
+
+  it('erlaubt weiterhin den direkten Members-Read für die eigene, im Index bekannte Gruppe (Grundlage von watchCommonGroups)', async () => {
+    // heidi ist Mitglied von "heidi-ivan-shared" (steht in ihrem eigenen
+    // Index) und darf daher direkt prüfen, ob ivan dort ebenfalls Mitglied
+    // ist - exakt der von GroupRepository.watchCommonGroups verwendete Weg.
+    const db = testEnv.authenticatedContext('heidi').firestore();
+    await assertSucceeds(db.doc('groups/heidi-ivan-shared/members/ivan').get());
   });
 });
 
