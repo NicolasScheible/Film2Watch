@@ -76,6 +76,45 @@ class GroupRepository {
     });
   }
 
+  /// Gruppen, in denen sowohl [currentUid] als auch [friendUid] Mitglied
+  /// sind (§4: "gemeinsame Gruppen" im Freundes-Profil) - die Schnittmenge
+  /// zweier Mitgliedschafts-Queries, exakt wie bei [watchMyGroups], hier
+  /// zusätzlich client-seitig geschnitten. Firestore Rules (`isGroupMember`
+  /// prüft immer die Mitgliedschaft des *aufrufenden* Users, nie die des
+  /// abgefragten `uid`-Feldwerts) lassen eine reine
+  /// `members.where('uid', isEqualTo: friendUid)`-Query ohnehin nur
+  /// Ergebnisse aus Gruppen zurückgeben, in denen [currentUid] selbst
+  /// Mitglied ist - die explizite Schnittmenge hier ist eine zusätzliche,
+  /// unabhängig von den Rules korrekte Absicherung (u. a. damit dieses
+  /// Verhalten auch mit `fake_cloud_firestore`, das keine Rules erzwingt,
+  /// sinnvoll testbar ist).
+  Stream<List<Group>> watchCommonGroups({
+    required String currentUid,
+    required String friendUid,
+  }) {
+    return _firestore
+        .collectionGroup('members')
+        .where('uid', isEqualTo: friendUid)
+        .snapshots()
+        .asyncMap((friendSnapshot) async {
+      final friendGroupIds =
+          friendSnapshot.docs.map((doc) => doc.reference.parent.parent!.id).toSet();
+      if (friendGroupIds.isEmpty) return const <Group>[];
+
+      final mySnapshot = await _firestore
+          .collectionGroup('members')
+          .where('uid', isEqualTo: currentUid)
+          .get();
+      final myGroupIds = mySnapshot.docs.map((doc) => doc.reference.parent.parent!.id).toSet();
+
+      final commonGroupIds = friendGroupIds.intersection(myGroupIds);
+      if (commonGroupIds.isEmpty) return const <Group>[];
+
+      final groupDocs = await Future.wait(commonGroupIds.map((id) => _groups.doc(id).get()));
+      return groupDocs.where((doc) => doc.exists).map(Group.fromFirestore).toList();
+    });
+  }
+
   /// Anzahl der Gruppen, in denen [uid] aktuell Mitglied ist (§15:
   /// Free-Gruppen-Limit) - live per Aggregations-Query auf dieselbe
   /// Collection-Group wie [watchMyGroups], daher ohne Verzögerung exakt (im

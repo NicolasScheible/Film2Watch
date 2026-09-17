@@ -101,6 +101,47 @@ before(async () => {
       inviteeUid: 'frank',
       createdAt: now(),
     });
+
+    // Fixtures für §4 ("gemeinsame Gruppen" im Freundes-Profil): heidi und
+    // ivan haben eine gemeinsame Gruppe; ivan ist zusätzlich (ohne heidi)
+    // Mitglied einer zweiten Gruppe mit judy - diese darf heidi niemals über
+    // eine `members`-Collection-Group-Query nach ivans uid zu sehen bekommen.
+    await db.doc('groups/heidi-ivan-shared').set({
+      id: 'heidi-ivan-shared',
+      name: 'Gemeinsame Gruppe',
+      photo_url: null,
+      created_by: 'heidi',
+      created_at: now(),
+      updated_at: now(),
+    });
+    await db.doc('groups/heidi-ivan-shared/members/heidi').set({
+      uid: 'heidi',
+      role: 'admin',
+      joined_at: now(),
+    });
+    await db.doc('groups/heidi-ivan-shared/members/ivan').set({
+      uid: 'ivan',
+      role: 'member',
+      joined_at: now(),
+    });
+    await db.doc('groups/ivan-judy-only').set({
+      id: 'ivan-judy-only',
+      name: 'Nicht gemeinsame Gruppe',
+      photo_url: null,
+      created_by: 'ivan',
+      created_at: now(),
+      updated_at: now(),
+    });
+    await db.doc('groups/ivan-judy-only/members/ivan').set({
+      uid: 'ivan',
+      role: 'admin',
+      joined_at: now(),
+    });
+    await db.doc('groups/ivan-judy-only/members/judy').set({
+      uid: 'judy',
+      role: 'member',
+      joined_at: now(),
+    });
   });
 });
 
@@ -247,6 +288,33 @@ describe('§15-Gruppen-Limit: groups/{groupId}/members/{uid} create', () => {
     await assertSucceeds(
       db.doc('groups/limit-invite-premium/members/frank').set({ uid: 'frank', role: 'member', joined_at: now() }),
     );
+  });
+});
+
+describe('§4: gemeinsame Gruppen - Cross-User Collection-Group-Query auf members', () => {
+  it('liefert bei einer Query nach der uid eines Freundes nur die tatsächlich gemeinsame Gruppe, nie dessen fremde Gruppe', async () => {
+    const db = testEnv.authenticatedContext('heidi').firestore();
+    const snapshot = await db.collectionGroup('members').where('uid', '==', 'ivan').get();
+
+    const groupIds = snapshot.docs.map((doc) => doc.ref.parent.parent.id);
+    if (groupIds.includes('ivan-judy-only')) {
+      throw new Error(
+        'heidi konnte über die members-Collection-Group-Query eine fremde Gruppe von ivan sehen (Privacy-Leck).',
+      );
+    }
+    if (!groupIds.includes('heidi-ivan-shared')) {
+      throw new Error('Die tatsächlich gemeinsame Gruppe wurde nicht gefunden.');
+    }
+  });
+
+  it('liefert für einen völlig fremden User (keine gemeinsame Gruppe) keine Treffer', async () => {
+    const db = testEnv.authenticatedContext('heidi').firestore();
+    const snapshot = await db.collectionGroup('members').where('uid', '==', 'judy').get();
+
+    const groupIds = snapshot.docs.map((doc) => doc.ref.parent.parent.id);
+    if (groupIds.length !== 0) {
+      throw new Error(`heidi hat unerwartet Treffer für judy erhalten: ${groupIds.join(', ')}`);
+    }
   });
 });
 

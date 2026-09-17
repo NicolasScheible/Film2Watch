@@ -12,6 +12,7 @@ class FriendListTile extends StatelessWidget {
     required this.friendCode,
     this.profilePicture,
     this.trailing,
+    this.onTap,
   });
 
   final String name;
@@ -19,37 +20,46 @@ class FriendListTile extends StatelessWidget {
   final String? profilePicture;
   final Widget? trailing;
 
+  /// Öffnet z. B. das Freundes-Profil (§4: "gemeinsame Gruppen und
+  /// vergangene Matches") - `null` in den bisherigen, nicht interaktiven
+  /// Verwendungen (Freundesanfragen, Suchvorschau) unverändert.
+  final VoidCallback? onTap;
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          UserAvatar(name: name, profilePicture: profilePicture, radius: 22),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            UserAvatar(name: name, profilePicture: profilePicture, radius: 22),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  friendCode,
-                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                ),
-              ],
+                  Text(
+                    friendCode,
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                ],
+              ),
             ),
-          ),
-          ?trailing,
-        ],
+            ?trailing,
+          ],
+        ),
       ),
     );
   }

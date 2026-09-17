@@ -59,3 +59,31 @@ final allMyMatchesProvider = Provider<AsyncValue<List<GroupMatch>>>((ref) {
     return result;
   });
 });
+
+/// Vergangene, gemeinsame Matches mit einem Freund (§4: "vergangene Matches"
+/// im Freundes-Profil) - Matches aus den gemeinsamen Gruppen
+/// ([commonGroupsWithFriendProvider]), bei denen der Freund tatsächlich
+/// Bestandteil des Matches war (`member_uids` enthält ihn). Nutzt denselben,
+/// bereits bestehenden [groupMatchesProvider] wie [allMyMatchesProvider] -
+/// keine neue Firestore-Query, nur eine andere Gruppenauswahl plus einen
+/// zusätzlichen Filter.
+final pastMatchesWithFriendProvider = Provider.family<AsyncValue<List<GroupMatch>>, String>((
+  ref,
+  friendUid,
+) {
+  final groupsAsync = ref.watch(commonGroupsWithFriendProvider(friendUid));
+
+  return groupsAsync.whenData((groups) {
+    final result = <GroupMatch>[];
+    for (final group in groups) {
+      final matches = ref.watch(groupMatchesProvider(group.id)).value ?? const [];
+      for (final match in matches) {
+        if (match.memberUids.contains(friendUid)) {
+          result.add(GroupMatch(group: group, match: match));
+        }
+      }
+    }
+    result.sort((a, b) => b.match.matchedAt.compareTo(a.match.matchedAt));
+    return result;
+  });
+});

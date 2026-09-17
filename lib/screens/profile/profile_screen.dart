@@ -14,6 +14,7 @@ import '../../theme/app_theme.dart';
 import '../../utils/friend_error_translator.dart';
 import 'add_friend_screen.dart';
 import 'edit_profile_screen.dart';
+import 'friend_detail_screen.dart';
 import 'friend_requests_screen.dart';
 import 'statistics_screen.dart';
 
@@ -269,6 +270,8 @@ class _FriendTile extends ConsumerWidget {
           name: profile.name,
           friendCode: profile.friendCode,
           profilePicture: profile.profilePicture,
+          onTap: () => Navigator.of(context)
+              .push(MaterialPageRoute(builder: (_) => FriendDetailScreen(friendUid: friendUid))),
           trailing: IconButton(
             icon: const Icon(Icons.person_remove_outlined, color: AppColors.textSecondary),
             onPressed: () => _confirmRemove(context, ref, profile.name),

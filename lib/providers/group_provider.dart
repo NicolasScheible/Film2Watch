@@ -40,6 +40,19 @@ final myGroupsProvider = StreamProvider<List<Group>>((ref) {
   return ref.watch(groupRepositoryProvider).watchMyGroups(uid);
 });
 
+/// Gruppen, die der aktuell eingeloggte User mit [friendUid] gemeinsam hat
+/// (§4: "gemeinsame Gruppen" im Freundes-Profil).
+final commonGroupsWithFriendProvider = StreamProvider.family<List<Group>, String>((
+  ref,
+  friendUid,
+) {
+  final uid = ref.watch(authStateChangesProvider).value?.uid;
+  if (uid == null) return Stream.value(const []);
+  return ref
+      .watch(groupRepositoryProvider)
+      .watchCommonGroups(currentUid: uid, friendUid: friendUid);
+});
+
 final groupProvider = StreamProvider.family<Group?, String>((ref, groupId) {
   return ref.watch(groupRepositoryProvider).watchGroup(groupId);
 });
