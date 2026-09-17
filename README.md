@@ -209,6 +209,46 @@ Statistiken, Abmelden). **Konto löschen** und **Passwort ändern** (im eingelog
 ausdrücklich **nicht** als §16-Anforderung dokumentiert, da sie in keiner der geprüften
 Spezifikationen erwähnt werden.
 
+### Freundes-Profil: gemeinsame Gruppen und vergangene Matches (§4)
+
+- Konzept_2 §4 verlangt, dass man im Profil eines Freundes seine Freunde, gemeinsame Gruppen und
+  vergangene Matches sieht. Mit dem Produktverantwortlichen abgestimmt: Konzept_2.pdf ist für
+  diesen Punkt maßgeblich, auch wenn die GUI-Spezifikation die beiden Punkte in ihrer eigenen
+  Freundesliste-Detailansicht nicht separat nennt.
+- Die erste Implementierung (`GroupRepository.watchCommonGroups`) hat versucht, die gemeinsamen
+  Gruppen über eine Collection-Group-Query auf `members` (`where('uid', isEqualTo: ...)`) zu
+  bestimmen.
+- Ein Test gegen den echten Firestore-Emulator zeigt: unter den aktuellen Security Rules
+  (`isGroupMember(groupId)`) wird genau diese Query-Form mit `permission-denied` abgelehnt – sowohl
+  für die uid eines Freundes als auch für die eigene uid des anfragenden Users.
+- Dieselbe Query-Form wird bereits von `GroupRepository.watchMyGroups()`/`myGroupCount()`
+  verwendet. Es besteht daher zusätzlich ein separater, vorbestehender technischer Befund bei der
+  bestehenden Gruppenabfrage (siehe eigener Abschnitt unten) – unabhängig von der neuen Funktion.
+- Das Feature bleibt bis zur Architekturentscheidung durch den Produktverantwortlichen **WIP**: UI,
+  Provider und die neuen Rules-Tests sind vorhanden, aber `watchCommonGroups()` liefert unter
+  echten Rules aktuell keine Daten. `firestore.rules` wurde dafür bewusst nicht verändert.
+
+### Vorbestehender technischer Befund: `watchMyGroups()`/`myGroupCount()`
+
+- `GroupRepository.watchMyGroups(uid)` und `GroupRepository.myGroupCount(uid)` verwenden eine
+  Collection-Group-Query auf `members` mit `where('uid', isEqualTo: uid)`.
+- Unter den aktuell geprüften Firestore Rules konnte diese Collection-Group-Query im Emulator
+  nicht ausgeführt werden (`permission-denied`) – geprüft sowohl mit einer fremden uid als auch mit
+  der eigenen uid des anfragenden Users, exakt derselben Query-Form wie in `watchMyGroups()`.
+- Beide Methoden werden von produktiven Codepfaden verwendet (u. a. `myGroupsProvider`, damit
+  `groups_screen.dart`, `swipe_screen.dart`, `chat_screen.dart`, `share_movie_dialog.dart`,
+  `allMyMatchesProvider`, sowie der clientseitige Free-Gruppen-Limit-Check in `group_service.dart`).
+  Es gibt keinen alternativen produktiven Codepfad, der dieselbe Information sicher anders
+  bereitstellt.
+- Es wurde **nicht** abschließend verifiziert, ob dies in der realen, deployten App tatsächlich zu
+  einem Fehler führt (z. B. abhängig von SDK-Version/Client-Cache-Verhalten) – es ist ausschließlich
+  gegen den lokalen Firestore-Emulator mit der aktuellen `firestore.rules`-Datei nachgewiesen. Es
+  gibt keine CI, die Rules-Tests automatisch ausführt, daher wäre ein solcher Fehler bisher nicht
+  automatisch aufgefallen.
+- Wird als eigenständiger technischer Befund/Debt behandelt, noch nicht behoben. Nächster Schritt
+  ist eine Architekturentscheidung (siehe Entscheidungsbericht in der Session), keine sofortige
+  Änderung an `firestore.rules` oder am Datenmodell.
+
 ## Datenmodell (Gruppen)
 
 | Collection | Zweck | Zugriff |

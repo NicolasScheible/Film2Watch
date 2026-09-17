@@ -291,6 +291,16 @@ describe('§15-Gruppen-Limit: groups/{groupId}/members/{uid} create', () => {
   });
 });
 
+// Bekannter, dokumentierter Zustand (siehe README, Abschnitt "Vorbestehender technischer
+// Befund: watchMyGroups()/myGroupCount()" sowie den Architektur-Entscheidungsbericht dieser
+// Session): Firestore kann eine Collection-Group-Query, deren Regel (isGroupMember(groupId))
+// einen exists()-Check auf einem erst pro Treffer bekannten Pfadsegment (groupId) erfordert,
+// beim Query-Zeitpunkt nicht als sicher beweisen und lehnt sie deshalb komplett mit
+// permission-denied ab - unabhängig davon, ob die Daten die Regel im Einzelfall erfüllt hätten.
+// Beide Tests hier schlagen deshalb aktuell erwartungsgemäß fehl (nicht an den Assertions,
+// sondern schon am `.get()`-Aufruf selbst). Bewusst NICHT auf assertFails() umgeschrieben und
+// NICHT gelöscht: Sie dokumentieren das fachlich gewünschte Zielverhalten, bis eine
+// Architekturentscheidung (neue Query-Form/Datenquelle) getroffen und umgesetzt ist.
 describe('§4: gemeinsame Gruppen - Cross-User Collection-Group-Query auf members', () => {
   it('liefert bei einer Query nach der uid eines Freundes nur die tatsächlich gemeinsame Gruppe, nie dessen fremde Gruppe', async () => {
     const db = testEnv.authenticatedContext('heidi').firestore();
