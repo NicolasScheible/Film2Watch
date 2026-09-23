@@ -53,6 +53,29 @@ before(async () => {
     // (§6/§15). bob bleibt bewusst ohne premium_status-Dokument (Normalfall
     // für einen Free-User).
     await db.doc('premium_status/alice').set({ is_premium: true });
+
+    // Fixtures für §15 „Detaillierte Statistiken" (SwipeRepository.
+    // getAllSwipesForUser - Architektur-Audit "collectionGroup('swipes')"):
+    // alice ist NUR Mitglied von swipesgroup1, nicht von swipesgroup2 - hat
+    // dort aber (Simulation eines historischen Swipes aus einer bereits
+    // verlassenen Gruppe, siehe README) trotzdem ein Swipe-Dokument. dave
+    // ist der einzige aktuelle Mitglied von swipesgroup2.
+    await db.doc('groups/swipesgroup2').set({
+      id: 'swipesgroup2',
+      name: 'Ehemalige Gruppe',
+      photo_url: null,
+      created_by: 'dave',
+      created_at: now(),
+      updated_at: now(),
+    });
+    await db.doc('groups/swipesgroup2/members/dave').set({ uid: 'dave', role: 'admin', joined_at: now() });
+    await db.doc('groups/swipesgroup2/swipes/alice_700').set({
+      uid: 'alice',
+      movie_id: 700,
+      decision: 'like',
+      created_at: now(),
+      updated_at: now(),
+    });
   });
 });
 
@@ -614,6 +637,60 @@ describe('groups/{groupId}/swipes/{swipeId}', () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
       db.doc('groups/swipesgroup1/swipes/alice_913').update({ decision: 'super', updated_at: now() }),
+    );
+  });
+});
+
+// §15 „Detaillierte Statistiken" - Architektur-Audit für
+// SwipeRepository.getAllSwipesForUser(): belegt, dass der geplante Ersatz
+// für die nicht funktionsfähige collectionGroup('swipes')-Query (siehe
+// README, Abschnitt "Statistiken (§15)") - eine normale Subcollection-Query
+// pro bereits als eigen bekannter groupId - unter der bestehenden, hier
+// UNVERÄNDERTEN Rule sicher funktioniert. Bewusst NICHT Teil davon: die
+// fachliche Frage, ob "swipesgroup2" (eine Gruppe, in der alice historisch
+// einen Swipe hat, aber nicht mehr/nie Mitglied ist) mitgezählt werden soll
+// - das ist eine offene PO-Entscheidung, keine Security-Frage.
+describe('§15: Subcollection-Query groups/{groupId}/swipes für bekannte eigene Gruppen', () => {
+  it('erlaubt es einem Mitglied, die Swipes seiner EIGENEN Gruppe per Subcollection-Query zu lesen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    const snapshot = await db
+      .collection('groups/swipesgroup1/swipes')
+      .where('uid', '==', 'alice')
+      .get();
+    // Bewusst kein exakter Count: andere Tests in dieser Datei legen im
+    // Verlauf der Suite weitere alice-Swipes in derselben, geteilten
+    // Emulator-Instanz an. Entscheidend ist nur, dass der ursprüngliche
+    // Fixture-Swipe erreichbar ist und nichts aus swipesgroup2 durchsickert.
+    const ids = snapshot.docs.map((doc) => doc.id);
+    if (!ids.includes('alice_100')) {
+      throw new Error('alice hat ihren eigenen Swipe aus swipesgroup1 nicht erhalten.');
+    }
+  });
+
+  it('verbietet es, dieselbe Query-Form für eine Gruppe auszuführen, in der man nicht Mitglied ist', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(
+      db.collection('groups/swipesgroup2/swipes').where('uid', '==', 'alice').get(),
+    );
+  });
+
+  it('verbietet es einem fremden User, die Swipes einer Gruppe zu lesen, in der er nicht Mitglied ist', async () => {
+    const db = testEnv.authenticatedContext('carol').firestore();
+    await assertFails(
+      db.collection('groups/swipesgroup1/swipes').where('uid', '==', 'alice').get(),
+    );
+  });
+
+  it('bestehende Swipe-Write-Regeln bleiben unverändert (fremder User darf nicht schreiben)', async () => {
+    const db = testEnv.authenticatedContext('carol').firestore();
+    await assertFails(
+      db.doc('groups/swipesgroup1/swipes/carol_999').set({
+        uid: 'carol',
+        movie_id: 999,
+        decision: 'like',
+        created_at: now(),
+        updated_at: now(),
+      }),
     );
   });
 });

@@ -958,15 +958,14 @@ Statistiken. Gezeigt werden Anzahl Swipes (gesamt, unabhängig vom Typ), Anzahl 
 Dislikes, Anzahl Watchlist-Einträge, Anzahl Matches und die Lieblingsgenres.
 
 **Datenherkunft (bewusst keine neue Aggregation/Infrastruktur):**
-- Swipes/Likes/Dislikes/Watchlist: `SwipeRepository.getAllSwipesForUser(uid)` – eine
+- Swipes/Likes/Dislikes/Watchlist: `SwipeRepository.getAllSwipesForUser(uid)` verwendet(e) eine
   Collection-Group-Query über `groups/*/swipes` mit `where uid == meineUid`. **Bestätigter
   technischer Befund (Emulator-Test):** dieselbe Query-Form wie beim bereits behobenen
   `members`-Befund – unter der Rule `allow read: if isGroupMember(groupId)` lehnt Firestore diese
   Collection-Group-Query pauschal mit `permission-denied` ab, geprüft sowohl mit der eigenen als
   auch mit einer fremden uid. Betrifft ausschließlich diesen clientseitigen Aufruf; die
   serverseitige, strukturell identische Query in `functions/userPreferences.js` läuft über das
-  Admin-SDK und ist von Firestore Rules nicht betroffen. Noch nicht behoben – siehe
-  Architektur-Analyse (eigener Abschnitt), Fix erst nach PO-Entscheidung. Die Aggregation zu
+  Admin-SDK und ist von Firestore Rules nicht betroffen. Die Aggregation zu
   Likes/Dislikes/Watchlist/Gesamtzahl erfolgt clientseitig aus der geladenen Liste
   (`UserStatistics.fromSwipes`) – keine neue Firestore-Query pro Kennzahl.
 - Matches: die bereits bestehende, gruppenübergreifende `allMyMatchesProvider`-Liste (identisch zum
@@ -974,6 +973,32 @@ Dislikes, Anzahl Watchlist-Einträge, Anzahl Matches und die Lieblingsgenres.
 - Lieblingsgenres: die bereits serverseitig vorberechneten `top_genres`/`genre_affinity` aus
   `user_preferences/{uid}` (§7/§18/§17.4, unverändert) – Genre-Namen kommen wie im Filter (§10) von
   TMDB (`movieGenresProvider`).
+
+**Technischer Fix noch NICHT umgesetzt – offene PO-/Spec-Frage blockiert ihn:** Der PO-Entschluss
+für diesen Punkt sah vor, den bereits bestehenden User-Group-Index
+(`users/{uid}/groups/{groupId}`) zu nutzen: eigene groupIds daraus laden, anschließend pro Gruppe
+die bestehende, bereits rules-sichere Subcollection-Query `groups/{groupId}/swipes.where('uid',
+==, self)` verwenden (per Rules-Emulator-Test bestätigt sicher – siehe
+`firestore-tests/test/swipes.rules.test.mjs`, Abschnitt „§15: Subcollection-Query …"). Das würde die
+`permission-denied`-Query vollständig ersetzen, ohne neue Datenstruktur, ohne neue Cloud Function,
+ohne Rules-Änderung.
+
+Der Haken: `users/{uid}/groups/{groupId}` enthält ausschließlich **aktuelle** Mitgliedschaften – der
+Cloud-Function-Trigger löscht den Eintrag beim Verlassen/Entfernen vollständig, es gibt keine
+historische Spur. Swipe-Dokumente selbst werden beim Verlassen einer Gruppe dagegen NICHT gelöscht
+(unverändertes, bestehendes Verhalten von `GroupService.leaveGroup`/`removeMember`). Ein Fix auf
+Basis des Index würde Swipes aus mittlerweile verlassenen Gruppen daher nicht mehr in die Statistik
+einbeziehen – eine tatsächliche fachliche Verhaltensänderung, keine reine Technik-Korrektur.
+
+**Weder §15 noch eine bisherige PO-Abstimmung legt fest, ob die Statistik nur aktuell eigene
+Gruppen oder auch historische Swipes aus verlassenen Gruppen zählen soll** (§15 nennt nur den
+Umfang der Kennzahlen, s. o., keine Aussage zu Gruppen-Historie). Offene PO-Entscheidung, bevor der
+technische Fix umgesetzt werden darf:
+
+> Soll §15 zukünftig nur Swipes aus aktuell eigenen Gruppen zählen (technisch einfach, sicher, mit
+> dem bestehenden User-Group-Index umsetzbar) oder weiterhin auch historische Swipes aus
+> inzwischen verlassenen Gruppen (erfordert eine zusätzliche, hier noch nicht analysierte
+> Architektur, da der Index das nicht abbilden kann)?
 
 **Premium-Gating – bewusst reines Produkt-/UI-Gating, keine neue Sicherheitsgrenze:** alle drei
 oben genannten Datenquellen sind für JEDEN eingeloggten User (Free wie Premium) schon **heute**
