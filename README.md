@@ -240,10 +240,12 @@ Spezifikationen erwähnt werden.
 - Einmaliges Backfill für bereits vor diesem Fix bestehende Mitgliedschaften:
   `functions/scripts/backfillUserGroupIndex.js` (siehe `functions/README.md`, Abschnitt
   "Backfill") - nicht automatisch gegen eine produktive Firebase-Instanz ausgeführt.
-- Verwandter, separater Befund (nicht Teil dieses Fixes): `SwipeRepository.getAllSwipesForUser()`
-  (Grundlage der §15-Detailstatistik) verwendet dieselbe problematische Query-Form
-  (`collectionGroup('swipes').where('uid', ...)`) und ist nach demselben Muster betroffen - noch
-  nicht behoben.
+- Verwandter, separater Befund (nicht Teil dieses Fixes), **jetzt gegen den echten Emulator
+  bestätigt** (siehe Abschnitt "Statistiken (§15)"): `SwipeRepository.getAllSwipesForUser()`
+  verwendet dieselbe problematische Query-Form (`collectionGroup('swipes').where('uid', ...)`) und
+  ist strukturell nach demselben Muster betroffen (`permission-denied`, geprüft mit eigener und
+  fremder uid) - noch nicht behoben, Architektur-Analyse ausständig (eigene PO-Entscheidung
+  erforderlich, kein automatischer Folge-Fix aus der Gruppen-Architektur).
 
 ## Datenmodell (Gruppen)
 
@@ -957,10 +959,14 @@ Dislikes, Anzahl Watchlist-Einträge, Anzahl Matches und die Lieblingsgenres.
 
 **Datenherkunft (bewusst keine neue Aggregation/Infrastruktur):**
 - Swipes/Likes/Dislikes/Watchlist: `SwipeRepository.getAllSwipesForUser(uid)` – eine
-  Collection-Group-Query über `groups/*/swipes` mit `where uid == meineUid`, exakt dasselbe Muster
-  wie `functions/userPreferences.js` (serverseitige Genre-Präferenz-Berechnung) und
-  `GroupRepository.myGroupCount` (§15-Gruppen-Limit); nutzt den bereits deklarierten
-  `swipes`-Collection-Group-Index (`firestore.indexes.json`). Die Aggregation zu
+  Collection-Group-Query über `groups/*/swipes` mit `where uid == meineUid`. **Bestätigter
+  technischer Befund (Emulator-Test):** dieselbe Query-Form wie beim bereits behobenen
+  `members`-Befund – unter der Rule `allow read: if isGroupMember(groupId)` lehnt Firestore diese
+  Collection-Group-Query pauschal mit `permission-denied` ab, geprüft sowohl mit der eigenen als
+  auch mit einer fremden uid. Betrifft ausschließlich diesen clientseitigen Aufruf; die
+  serverseitige, strukturell identische Query in `functions/userPreferences.js` läuft über das
+  Admin-SDK und ist von Firestore Rules nicht betroffen. Noch nicht behoben – siehe
+  Architektur-Analyse (eigener Abschnitt), Fix erst nach PO-Entscheidung. Die Aggregation zu
   Likes/Dislikes/Watchlist/Gesamtzahl erfolgt clientseitig aus der geladenen Liste
   (`UserStatistics.fromSwipes`) – keine neue Firestore-Query pro Kennzahl.
 - Matches: die bereits bestehende, gruppenübergreifende `allMyMatchesProvider`-Liste (identisch zum
