@@ -96,6 +96,14 @@ void main() {
         movieId: 3,
         decision: SwipeDecision.dislike,
       );
+      // `getAllSwipesForUser` liest den dauerhaften Swipe-Group-Index
+      // (`users/{uid}/swiped_groups/{groupId}`, siehe README
+      // "Architekturentscheidung") - `fake_cloud_firestore` führt den dafür
+      // zuständigen Cloud-Function-Trigger nicht aus, daher hier direkt
+      // nachgebildet.
+      await firestore.collection('users').doc('alice').collection('swiped_groups').doc(group.id).set({
+        'groupId': group.id,
+      });
       await firestore.collection('groups').doc(group.id).collection('matches').doc('1').set({
         'movie_id': 1,
         'member_uids': ['alice'],

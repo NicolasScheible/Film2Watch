@@ -21,6 +21,16 @@ Future<void> _seedUserGroupIndex(FakeFirebaseFirestore firestore, String uid, St
   });
 }
 
+/// `getAllSwipesForUser` liest den dauerhaften Swipe-Group-Index
+/// (`users/{uid}/swiped_groups/{groupId}`, siehe README
+/// "Architekturentscheidung") - ebenfalls ausschließlich serverseitig per
+/// Cloud-Function-Trigger gepflegt, daher hier direkt nachgebildet.
+Future<void> _seedSwipedGroupsIndex(FakeFirebaseFirestore firestore, String uid, String groupId) {
+  return firestore.collection('users').doc(uid).collection('swiped_groups').doc(groupId).set({
+    'groupId': groupId,
+  });
+}
+
 Future<void> _seedMatch(FakeFirebaseFirestore firestore, String groupId, int movieId) {
   return firestore.collection('groups').doc(groupId).collection('matches').doc('$movieId').set({
     'movie_id': movieId,
@@ -129,6 +139,8 @@ void main() {
         movieId: 4,
         decision: SwipeDecision.like,
       );
+      await _seedSwipedGroupsIndex(firestore, 'alice', groupA.id);
+      await _seedSwipedGroupsIndex(firestore, 'alice', groupB.id);
 
       await settleMatches([groupA.id, groupB.id]);
 

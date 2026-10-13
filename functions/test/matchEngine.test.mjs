@@ -54,7 +54,7 @@ function matchRef(groupId, movieId) {
 }
 
 /** Wartet, bis die (asynchrone) Cloud Function das Match-Dokument angelegt hat. */
-async function waitForMatch(groupId, movieId, { timeoutMs = 10000, intervalMs = 200 } = {}) {
+async function waitForMatch(groupId, movieId, { timeoutMs = 20000, intervalMs = 200 } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const snap = await matchRef(groupId, movieId).get();
@@ -71,9 +71,12 @@ async function waitForMatch(groupId, movieId, { timeoutMs = 10000, intervalMs = 
  * Emulator läuft über alle Functions gemeinsam), desto länger kann die
  * Verarbeitung eines einzelnen Swipe-Writes dauern - ein zu knapper Wert
  * würde hier fälschlich einen noch nicht verarbeiteten Zustand als "korrekt
- * kein Match" werten.
+ * kein Match" werten. Angehoben von 5000ms auf 8000ms, nachdem ein dritter
+ * Trigger auf `groups/{groupId}/swipes/{swipeId}` (`onSwipeWrittenForGroupIndex`,
+ * siehe `userSwipeGroupIndex.js`) die gemeinsame Dispatch-Zeit zusätzlich
+ * erhöht hat.
  */
-async function assertNoMatchAfterSettling(groupId, movieId, waitMs = 5000) {
+async function assertNoMatchAfterSettling(groupId, movieId, waitMs = 8000) {
   await new Promise((resolve) => setTimeout(resolve, waitMs));
   const snap = await matchRef(groupId, movieId).get();
   assert.equal(snap.exists, false, `Unerwartetes Match-Dokument für Film ${movieId} in ${groupId}`);

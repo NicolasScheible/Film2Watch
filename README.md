@@ -240,12 +240,12 @@ Spezifikationen erwähnt werden.
 - Einmaliges Backfill für bereits vor diesem Fix bestehende Mitgliedschaften:
   `functions/scripts/backfillUserGroupIndex.js` (siehe `functions/README.md`, Abschnitt
   "Backfill") - nicht automatisch gegen eine produktive Firebase-Instanz ausgeführt.
-- Verwandter, separater Befund (nicht Teil dieses Fixes), **jetzt gegen den echten Emulator
-  bestätigt** (siehe Abschnitt "Statistiken (§15)"): `SwipeRepository.getAllSwipesForUser()`
-  verwendet dieselbe problematische Query-Form (`collectionGroup('swipes').where('uid', ...)`) und
-  ist strukturell nach demselben Muster betroffen (`permission-denied`, geprüft mit eigener und
-  fremder uid) - noch nicht behoben, Architektur-Analyse ausständig (eigene PO-Entscheidung
-  erforderlich, kein automatischer Folge-Fix aus der Gruppen-Architektur).
+- Verwandter, separater Befund, inzwischen behoben (siehe Abschnitt "Statistiken (§15)"):
+  `SwipeRepository.getAllSwipesForUser()` verwendete dieselbe problematische Query-Form
+  (`collectionGroup('swipes').where('uid', ...)`) und war strukturell nach demselben Muster
+  betroffen - gelöst über einen neuen, dauerhaften Swipe-Group-Index plus eine gezielte
+  Self-Access-Erweiterung der bestehenden `swipes`-Rule, nicht durch bloßes Wiederverwenden der
+  Gruppen-Architektur (die hätte historische, bereits verlassene Gruppen nicht abgebildet).
 
 ## Datenmodell (Gruppen)
 
@@ -974,31 +974,33 @@ Dislikes, Anzahl Watchlist-Einträge, Anzahl Matches und die Lieblingsgenres.
   `user_preferences/{uid}` (§7/§18/§17.4, unverändert) – Genre-Namen kommen wie im Filter (§10) von
   TMDB (`movieGenresProvider`).
 
-**Technischer Fix noch NICHT umgesetzt – offene PO-/Spec-Frage blockiert ihn:** Der PO-Entschluss
-für diesen Punkt sah vor, den bereits bestehenden User-Group-Index
-(`users/{uid}/groups/{groupId}`) zu nutzen: eigene groupIds daraus laden, anschließend pro Gruppe
-die bestehende, bereits rules-sichere Subcollection-Query `groups/{groupId}/swipes.where('uid',
-==, self)` verwenden (per Rules-Emulator-Test bestätigt sicher – siehe
-`firestore-tests/test/swipes.rules.test.mjs`, Abschnitt „§15: Subcollection-Query …"). Das würde die
-`permission-denied`-Query vollständig ersetzen, ohne neue Datenstruktur, ohne neue Cloud Function,
-ohne Rules-Änderung.
+**Technischer Fix umgesetzt (PO-Entscheidung: auch historische Swipes aus verlassenen Gruppen
+sollen weiterhin zählen):** `GroupRepository`s bereits bestehender User-Group-Index
+(`users/{uid}/groups/{groupId}`) enthält ausschließlich **aktuelle** Mitgliedschaften (der
+Cloud-Function-Trigger löscht den Eintrag beim Verlassen/Entfernen vollständig) und war daher
+allein nicht ausreichend. Zusätzlich empirisch bestätigt (Emulator-Test): selbst eine rein
+datenfeldbasierte Regel ohne jeden Gruppenbezug macht eine Collection-Group-Query nicht
+zulässig – Firestore verweigert für `collectionGroup`-Anfragen offenbar grundsätzlich jede
+dynamische Regel-Beweisführung, nicht nur bei pfadabhängigen Bedingungen. Eine normale,
+pfad-fixierte Subcollection-Query funktioniert mit derselben Regel dagegen einwandfrei, auch nach
+Verlassen der Gruppe.
 
-Der Haken: `users/{uid}/groups/{groupId}` enthält ausschließlich **aktuelle** Mitgliedschaften – der
-Cloud-Function-Trigger löscht den Eintrag beim Verlassen/Entfernen vollständig, es gibt keine
-historische Spur. Swipe-Dokumente selbst werden beim Verlassen einer Gruppe dagegen NICHT gelöscht
-(unverändertes, bestehendes Verhalten von `GroupService.leaveGroup`/`removeMember`). Ein Fix auf
-Basis des Index würde Swipes aus mittlerweile verlassenen Gruppen daher nicht mehr in die Statistik
-einbeziehen – eine tatsächliche fachliche Verhaltensänderung, keine reine Technik-Korrektur.
-
-**Weder §15 noch eine bisherige PO-Abstimmung legt fest, ob die Statistik nur aktuell eigene
-Gruppen oder auch historische Swipes aus verlassenen Gruppen zählen soll** (§15 nennt nur den
-Umfang der Kennzahlen, s. o., keine Aussage zu Gruppen-Historie). Offene PO-Entscheidung, bevor der
-technische Fix umgesetzt werden darf:
-
-> Soll §15 zukünftig nur Swipes aus aktuell eigenen Gruppen zählen (technisch einfach, sicher, mit
-> dem bestehenden User-Group-Index umsetzbar) oder weiterhin auch historische Swipes aus
-> inzwischen verlassenen Gruppen (erfordert eine zusätzliche, hier noch nicht analysierte
-> Architektur, da der Index das nicht abbilden kann)?
+Umgesetzte Architektur:
+- Neuer, **dauerhafter** Index `users/{uid}/swiped_groups/{groupId}` (anders als
+  `users/{uid}/groups/{groupId}`: wird nie wieder entfernt) – enthält jede Gruppe, in der der User
+  jemals mindestens einmal geswiped hat, auch nach Verlassen. Serverseitig gepflegt durch den neuen
+  Cloud-Function-Trigger `onSwipeWrittenForGroupIndex` (`functions/userSwipeGroupIndex.js`,
+  `onCreate` auf `groups/{groupId}/swipes/{swipeId}`) – kein Client darf schreiben, nur der eigene
+  User darf lesen (exakt das Muster von `users/{uid}/groups`).
+- Gezielte Erweiterung der bestehenden `swipes`-Lese-Regel um einen Self-Access-Fall:
+  `allow read: if isGroupMember(groupId) || (isSignedIn() && resource.data.uid ==
+  request.auth.uid);` – ein User darf sein **eigenes** Swipe-Dokument immer lesen, unabhängig von
+  der aktuellen Mitgliedschaft. Erweitert NICHT die Sichtbarkeit fremder Swipes: ein (ehemaliges)
+  Mitglied sieht weiterhin ausschließlich seine eigenen Dokumente, nie die anderer – per
+  Rules-Emulator-Test bestätigt (`firestore-tests/test/swipes.rules.test.mjs`).
+- `SwipeRepository.getAllSwipesForUser` liest den neuen Index und fragt anschließend pro bekannter
+  (auch historischer) groupId die Subcollection `groups/{groupId}/swipes` ab – keine
+  Collection-Group-Query mehr im produktiven Code für diesen Zweck.
 
 **Premium-Gating – bewusst reines Produkt-/UI-Gating, keine neue Sicherheitsgrenze:** alle drei
 oben genannten Datenquellen sind für JEDEN eingeloggten User (Free wie Premium) schon **heute**

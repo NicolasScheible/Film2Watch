@@ -16,6 +16,7 @@ const { resolveDuePolls } = require('./moviePollEngine');
 const { sendDueMovieNightReminders } = require('./movieNightReminderEngine');
 const { applyMembershipCountDelta } = require('./groupMembershipCount');
 const { applyUserGroupIndexEntry } = require('./userGroupIndex');
+const { markGroupAsSwiped } = require('./userSwipeGroupIndex');
 
 admin.initializeApp();
 
@@ -78,6 +79,41 @@ exports.onSwipeWrittenForPreferences = functions.firestore
       await updateUserGenrePreferences({ firestore: admin.firestore(), uid: data.uid });
     } catch (error) {
       functions.logger.error('Genre-Präferenz-Aktualisierung fehlgeschlagen', {
+        groupId: context.params.groupId,
+        swipeId: context.params.swipeId,
+        uid: data.uid,
+        error: error.message,
+      });
+    }
+    return null;
+  });
+
+/**
+ * Dritter, unabhängiger Trigger auf denselben Swipe-Schreibvorgang (siehe
+ * `onSwipeWrittenForPreferences` oben zur Begründung mehrerer Functions auf
+ * demselben Pfad) - pflegt `users/{uid}/swiped_groups/{groupId}`
+ * (`userSwipeGroupIndex.js`), den dauerhaften Index für §15 "Detaillierte
+ * Statistiken" (PO-Entscheidung: auch Swipes aus verlassenen Gruppen zählen
+ * weiterhin, siehe README "Architekturentscheidung"). Bewusst `onCreate`
+ * statt `onWrite`: nur das erstmalige Anlegen eines Swipes in einer Gruppe
+ * ist für diesen Index relevant - ein erneutes Bewerten oder ein Löschen
+ * (Watchlist-Entfernen) ändert nichts an der bereits erfassten Tatsache,
+ * dass der User dort schon einmal geswiped hat.
+ */
+exports.onSwipeWrittenForGroupIndex = functions.firestore
+  .document('groups/{groupId}/swipes/{swipeId}')
+  .onCreate(async (snapshot, context) => {
+    const data = snapshot.data();
+    if (!data || typeof data.uid !== 'string') return null;
+
+    try {
+      await markGroupAsSwiped({
+        firestore: admin.firestore(),
+        uid: data.uid,
+        groupId: context.params.groupId,
+      });
+    } catch (error) {
+      functions.logger.error('Swipe-Group-Index fehlgeschlagen', {
         groupId: context.params.groupId,
         swipeId: context.params.swipeId,
         uid: data.uid,

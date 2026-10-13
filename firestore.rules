@@ -119,6 +119,23 @@ service cloud.firestore {
         allow read: if isSignedIn() && request.auth.uid == userId;
         allow create, update, delete: if false;
       }
+
+      // Dauerhafter Swipe-Group-Index (PO-Entscheidung: §15 "Detaillierte
+      // Statistiken" soll auch Swipes aus inzwischen verlassenen Gruppen
+      // zählen, siehe README "Architekturentscheidung"). Anders als das
+      // obige `groups`-Feld (aktuelle Mitgliedschaft, wird beim Verlassen
+      // gelöscht) bleibt dieser Index absichtlich für immer bestehen -
+      // genau wie die Swipe-Dokumente selbst, die beim Verlassen einer
+      // Gruppe ebenfalls nicht gelöscht werden. Ausschließlich
+      // serverseitig gepflegt (Cloud-Function-Trigger
+      // `onSwipeWrittenForGroupIndex`, siehe
+      // `functions/userSwipeGroupIndex.js`, Admin-SDK umgeht Rules) - kein
+      // Client darf hier jemals selbst schreiben. Lesbar ausschließlich
+      // für den eigenen User.
+      match /swiped_groups/{groupId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow create, update, delete: if false;
+      }
     }
 
     // Personalisierter Boost-Zustand (§7/§18/§17.4 der Master-Spezifikation:
@@ -289,7 +306,24 @@ service cloud.firestore {
       // zu erzeugen. Lesbar für alle Mitglieder (spätere Match-Auswertung
       // braucht das), schreibbar ausschließlich für den eigenen Swipe.
       match /swipes/{swipeId} {
-        allow read: if isGroupMember(groupId);
+        // Zweite, zusätzliche Lese-Bedingung (PO-Entscheidung, §15
+        // "Detaillierte Statistiken" soll auch Swipes aus inzwischen
+        // verlassenen Gruppen zählen, siehe README
+        // "Architekturentscheidung"): ein User darf sein EIGENES
+        // Swipe-Dokument immer lesen, auch wenn er die Gruppe inzwischen
+        // verlassen hat - Swipe-Dokumente werden beim Verlassen nicht
+        // gelöscht (unverändertes, bestehendes Verhalten). Erweitert
+        // NICHT die Sichtbarkeit fremder Swipes: ein ehemaliges Mitglied
+        // sieht weiterhin ausschließlich seine eigenen Dokumente in dieser
+        // Gruppe, nie die anderer (ehemaliger oder aktueller) Mitglieder -
+        // dafür bleibt `isGroupMember(groupId)` weiterhin erforderlich.
+        // Funktioniert ausschließlich für einen vollständig bekannten
+        // Dokumentpfad (`get()`/Subcollection-Query mit fester groupId) -
+        // NICHT für eine Collection-Group-Query (empirisch gegen den
+        // Emulator verifiziert: Firestore lehnt dafür auch eine rein
+        // datenfeldbasierte Bedingung wie diese pauschal ab).
+        allow read: if isGroupMember(groupId)
+          || (isSignedIn() && resource.data.uid == request.auth.uid);
 
         allow create: if isGroupMember(groupId)
           && request.auth.uid == request.resource.data.uid

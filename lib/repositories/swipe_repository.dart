@@ -130,21 +130,35 @@ class SwipeRepository {
     return snapshot.docs.map(MovieSwipe.fromFirestore).toList();
   }
 
-  /// Alle Swipe-Entscheidungen von [uid] über ALLE Gruppen hinweg -
-  /// Grundlage für die persönliche Statistik-Ansicht (§15: "Detaillierte
-  /// Statistiken"). Collection-Group-Query analog zu
-  /// `functions/userPreferences.js` (dasselbe serverseitige Muster für die
-  /// Genre-Präferenz-Berechnung) und `GroupRepository.myGroupCount` - nutzt
-  /// denselben, bereits deklarierten `swipes`-Collection-Group-Index
-  /// (`firestore.indexes.json`, Feld `uid`), keine neue Rule/kein neuer
-  /// Index nötig: `allow read: if isGroupMember(groupId)` erlaubt bereits
-  /// heute jedem User das Lesen seiner eigenen Swipes in jeder Gruppe, in
-  /// der er Mitglied ist.
+  /// Alle Swipe-Entscheidungen von [uid] über ALLE Gruppen hinweg, in denen
+  /// er jemals geswiped hat - auch über inzwischen verlassene Gruppen (PO-
+  /// Entscheidung: §15 "Detaillierte Statistiken" soll auch historische
+  /// Swipes zählen). Liest dafür den dauerhaften, nie gelöschten Index
+  /// `users/{uid}/swiped_groups` (`functions/userSwipeGroupIndex.js`) und
+  /// fragt anschließend pro bekannter groupId die bereits bestehende,
+  /// rules-sichere Subcollection-Query `groups/{groupId}/swipes.where('uid',
+  /// ...)` ab - ersetzt die zuvor genutzte
+  /// `collectionGroup('swipes').where('uid', ...)`-Query, die als Query
+  /// (anders als diese fest-pfadigen Zugriffe) von Firestore nicht
+  /// zugelassen wird. Die Swipes-Rule erlaubt das Lesen des eigenen Swipes
+  /// jetzt unabhängig von der aktuellen Mitgliedschaft (`resource.data.uid
+  /// == request.auth.uid`), genau für diesen Fall.
   Future<List<MovieSwipe>> getAllSwipesForUser(String uid) async {
-    final snapshot = await _firestore
-        .collectionGroup('swipes')
-        .where('uid', isEqualTo: uid)
-        .get();
-    return snapshot.docs.map(MovieSwipe.fromFirestore).toList();
+    final indexSnapshot =
+        await _firestore.collection('users').doc(uid).collection('swiped_groups').get();
+    final groupIds = indexSnapshot.docs.map((doc) => doc.id).toList();
+    if (groupIds.isEmpty) return const [];
+
+    final perGroupSnapshots = await Future.wait(
+      groupIds.map((groupId) => _swipes(groupId).where('uid', isEqualTo: uid).get()),
+    );
+
+    final swipesByPath = <String, MovieSwipe>{};
+    for (final snapshot in perGroupSnapshots) {
+      for (final doc in snapshot.docs) {
+        swipesByPath[doc.reference.path] = MovieSwipe.fromFirestore(doc);
+      }
+    }
+    return swipesByPath.values.toList();
   }
 }

@@ -76,6 +76,12 @@ before(async () => {
       created_at: now(),
       updated_at: now(),
     });
+
+    // Dauerhafter Swipe-Group-Index (simuliert das Ergebnis von
+    // `onSwipeWrittenForGroupIndex`, ohne ihn selbst auszuführen - genau
+    // wie der bestehende `group_membership_counts`-Fixture-Stil).
+    await db.doc('users/alice/swiped_groups/swipesgroup1').set({ groupId: 'swipesgroup1' });
+    await db.doc('users/alice/swiped_groups/swipesgroup2').set({ groupId: 'swipesgroup2' });
   });
 });
 
@@ -641,15 +647,17 @@ describe('groups/{groupId}/swipes/{swipeId}', () => {
   });
 });
 
-// §15 „Detaillierte Statistiken" - Architektur-Audit für
-// SwipeRepository.getAllSwipesForUser(): belegt, dass der geplante Ersatz
-// für die nicht funktionsfähige collectionGroup('swipes')-Query (siehe
-// README, Abschnitt "Statistiken (§15)") - eine normale Subcollection-Query
-// pro bereits als eigen bekannter groupId - unter der bestehenden, hier
-// UNVERÄNDERTEN Rule sicher funktioniert. Bewusst NICHT Teil davon: die
-// fachliche Frage, ob "swipesgroup2" (eine Gruppe, in der alice historisch
-// einen Swipe hat, aber nicht mehr/nie Mitglied ist) mitgezählt werden soll
-// - das ist eine offene PO-Entscheidung, keine Security-Frage.
+// §15 „Detaillierte Statistiken" - SwipeRepository.getAllSwipesForUser()
+// liest den dauerhaften Index `users/{uid}/swiped_groups` und fragt
+// anschließend pro bekannter groupId diese Subcollection-Query ab (siehe
+// README, Abschnitt "Architekturentscheidung"). PO-Entscheidung: auch
+// Swipes aus inzwischen verlassenen Gruppen sollen weiterhin zählen -
+// "swipesgroup2" simuliert genau das: alice hat dort (`alice_700`) einen
+// historischen Swipe, ist aber kein aktuelles Mitglied (nur dave ist es).
+// Die Swipes-Rule erlaubt dafür zusätzlich zu `isGroupMember(groupId)` den
+// Fall `resource.data.uid == request.auth.uid` - ein User darf sein
+// EIGENES Swipe-Dokument immer lesen, nie das eines anderen (ehemaligen
+// oder aktuellen) Mitglieds.
 describe('§15: Subcollection-Query groups/{groupId}/swipes für bekannte eigene Gruppen', () => {
   it('erlaubt es einem Mitglied, die Swipes seiner EIGENEN Gruppe per Subcollection-Query zu lesen', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
@@ -667,8 +675,34 @@ describe('§15: Subcollection-Query groups/{groupId}/swipes für bekannte eigene
     }
   });
 
-  it('verbietet es, dieselbe Query-Form für eine Gruppe auszuführen, in der man nicht Mitglied ist', async () => {
+  it('erlaubt es alice, ihren EIGENEN historischen Swipe aus einer bereits verlassenen Gruppe zu lesen', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
+    const snapshot = await db
+      .collection('groups/swipesgroup2/swipes')
+      .where('uid', '==', 'alice')
+      .get();
+    const ids = snapshot.docs.map((doc) => doc.id);
+    if (!ids.includes('alice_700')) {
+      throw new Error('alice hat ihren eigenen historischen Swipe aus swipesgroup2 nicht erhalten.');
+    }
+    if (ids.length !== 1) {
+      throw new Error(`alice hat unerwartet fremde Dokumente erhalten: ${ids.join(', ')}`);
+    }
+  });
+
+  it('eine Self-Access-Query für eine Gruppe ohne eigenen Swipe liefert leer statt eines Fehlers', async () => {
+    const db = testEnv.authenticatedContext('carol').firestore();
+    const snapshot = await db
+      .collection('groups/swipesgroup2/swipes')
+      .where('uid', '==', 'carol')
+      .get();
+    if (snapshot.docs.length !== 0) {
+      throw new Error('carol hat unerwartet Treffer erhalten, obwohl sie dort nie geswiped hat.');
+    }
+  });
+
+  it('verbietet es weiterhin, die Swipes eines ANDEREN (ehemaligen) Mitglieds über dieselbe Query-Form zu lesen', async () => {
+    const db = testEnv.authenticatedContext('carol').firestore();
     await assertFails(
       db.collection('groups/swipesgroup2/swipes').where('uid', '==', 'alice').get(),
     );
@@ -692,6 +726,36 @@ describe('§15: Subcollection-Query groups/{groupId}/swipes für bekannte eigene
         updated_at: now(),
       }),
     );
+  });
+});
+
+// users/{uid}/swiped_groups/{groupId} - dauerhafter Index für §15 (siehe
+// README "Architekturentscheidung"), serverseitig gepflegt über
+// `onSwipeWrittenForGroupIndex` (`functions/userSwipeGroupIndex.js`).
+// Exakt dasselbe Sicherheitsmodell wie der bereits bestehende
+// `users/{uid}/groups`-Index (§4): nur der eigene Owner darf lesen, kein
+// Client darf schreiben.
+describe('users/{uid}/swiped_groups/{groupId}', () => {
+  it('erlaubt es einem User, den eigenen Index-Eintrag zu lesen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertSucceeds(db.doc('users/alice/swiped_groups/swipesgroup2').get());
+  });
+
+  it('verbietet es einem User, den Index-Eintrag eines anderen Users zu lesen', async () => {
+    const db = testEnv.authenticatedContext('carol').firestore();
+    await assertFails(db.doc('users/alice/swiped_groups/swipesgroup2').get());
+  });
+
+  it('verbietet es dem Client, einen Index-Eintrag selbst anzulegen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(
+      db.doc('users/alice/swiped_groups/faked-group').set({ groupId: 'faked-group' }),
+    );
+  });
+
+  it('verbietet es dem Client, einen Index-Eintrag selbst zu löschen', async () => {
+    const db = testEnv.authenticatedContext('alice').firestore();
+    await assertFails(db.doc('users/alice/swiped_groups/swipesgroup2').delete());
   });
 });
 
